@@ -172,3 +172,37 @@ def migrate_note(text):
         out.append(line)
     new_text = "---\n" + "\n".join(out) + text[end:]
     return new_text if new_text != text else None
+
+
+# Obsidian Bases (.base) filter and sort on frontmatter keys, so they break when the notes
+# are migrated. Expressions live in single quotes; property lists (order, groupBy) do not.
+RE_BASE_QUOTED = re.compile(r"('[^']*')")
+
+
+def _base_names(text, expression):
+    for old, new in FM_KEYS.items():
+        # Inside an expression `date` alone is the date() function: use `note.date`.
+        target = f"note.{new}" if expression and new == "date" else new
+        text = re.sub(rf"(?<![\w.]){old}\b", target, text)
+    return text
+
+
+def migrate_base(text):
+    """Rewrite the legacy keys and type values a .base view refers to. Comments untouched.
+    Returns the new text, or None if nothing changes."""
+    out = []
+    for line in text.splitlines(keepends=True):
+        if line.lstrip().startswith("#"):
+            out.append(line)
+            continue
+        parts = RE_BASE_QUOTED.split(line)
+        for i, part in enumerate(parts):
+            if part.startswith("'"):
+                for old, new in TYPE_VALUES.items():
+                    part = part.replace(f'"{old}"', f'"{new}"')
+                parts[i] = _base_names(part, expression=True)
+            else:
+                parts[i] = _base_names(part, expression=False)
+        out.append("".join(parts))
+    new_text = "".join(out)
+    return new_text if new_text != text else None

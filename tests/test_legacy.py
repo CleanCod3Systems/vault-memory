@@ -29,6 +29,11 @@ INCIDENT = ("---\ntipo_nota: incidente\narea: soporte\ntags:\n  - incidente\nfec
             "\n# Pagos rechazados por la pasarela\n\nLa pasarela rechazó los pagos del pedido 48213. ABC-12.\n")
 DOC = ("---\ntype: note\ntipo_nota: doc\narea: general\ntags: [doc]\nclave: pasarela-activa\n---\n"
        "\n# Pasarela activa\n\nLa pasarela activa se cambia desde el panel de pagos.\n")
+BASE = ("# Lo que pasó: tipo_nota y fecha quedan en el comentario.\n"
+        "filters:\n  or:\n    - 'tipo_nota == \"incidente\"'\n"
+        "formulas:\n  dias: 'if(estado != \"resuelto\" && fecha, (today() - date(fecha)).days, \"\")'\n"
+        "properties:\n  severidad: { displayName: Sev }\n"
+        "views:\n  - type: table\n    order: [file.name, fecha, estado, severidad]\n")
 
 
 class TestLegacyVault(unittest.TestCase):
@@ -42,6 +47,7 @@ class TestLegacyVault(unittest.TestCase):
         (self.vault / "Docs").mkdir()
         (self.vault / "Soporte" / "Incidentes" / "Inc - pasarela.md").write_text(INCIDENT, encoding="utf-8")
         (self.vault / "Docs" / "Pasarela activa.md").write_text(DOC, encoding="utf-8")
+        (self.vault / "Registro.base").write_text(BASE, encoding="utf-8")
 
     def tearDown(self):
         shutil.rmtree(self.tmp)
@@ -100,6 +106,13 @@ class TestLegacyVault(unittest.TestCase):
         self.assertIn("types_by_folder", config)
         self.assertNotIn("tipos_por_carpeta", config)
         self.assertTrue(list((self.vault / ".vault-memory" / "backups").rglob("*.md")))
+        base = (self.vault / "Registro.base").read_text(encoding="utf-8")
+        self.assertIn("'type == \"incident\"'", base)
+        self.assertIn("note.date, (today() - date(note.date)).days", base)
+        self.assertIn("status != \"resuelto\"", base)
+        self.assertIn("severity: { displayName: Sev }", base)
+        self.assertIn("order: [file.name, date, status, severity]", base)
+        self.assertTrue(base.startswith("# Lo que pasó: tipo_nota y fecha"), "comments untouched")
         self.assertIn("Nothing to migrate", self.cli("migrate"), "idempotent")
         rows = json.loads(self.cli("recall", "pagos rechazados por la pasarela", "--json"))
         self.assertEqual(rows[0]["type"], "incident")

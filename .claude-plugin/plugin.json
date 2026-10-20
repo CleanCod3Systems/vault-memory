@@ -1,6 +1,6 @@
 {
   "name": "vault-memory",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Turns an Obsidian vault into memory any coding agent can query: local recall before searching elsewhere, a frontmatter contract, freshness (replaced, expired, contradictions), duplicate-safe note writing, pattern synthesis and a self-contained panel. Deterministic: no network, no model, no tokens. Replies in the user language.",
   "author": {
     "name": "Giovanni Insfran",

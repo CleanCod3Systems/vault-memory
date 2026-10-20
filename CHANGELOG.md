@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.1 — 2026-10-20
+
+- `migrate` also rewrites Obsidian Bases (`.base` views): legacy keys in filters, formulas and
+  property lists, and legacy type values. Before, migrating a vault left its views filtering on
+  keys that no longer existed.
+
 ## 0.1.0 — 2026-10-20
 
 First public release of vault-memory, the successor of obsidian-cerebro.

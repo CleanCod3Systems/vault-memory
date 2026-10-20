@@ -667,16 +667,17 @@ def cmd_migrate(args, cfg):
     config_file = cfg["_state"] / "config.json"
     raw_config = json.loads(config_file.read_text(encoding="utf-8"))
     legacy_config = LG.is_legacy_config(raw_config)
-    changed = []
-    for path, rel in C.walk(cfg):
-        if IX.SENSITIVE.search(rel):
+    changed, bases = [], []
+    for path, rel in C.walk(cfg, md_only=False):
+        if IX.SENSITIVE.search(rel) or not rel.endswith((".md", ".base")):
             continue
+        migrate = LG.migrate_note if rel.endswith(".md") else LG.migrate_base
         try:
-            new_text = LG.migrate_note(path.read_text(encoding="utf-8"))
+            new_text = migrate(path.read_text(encoding="utf-8"))
         except Exception:
             continue
         if new_text is not None:
-            changed.append((rel, new_text))
+            (changed if rel.endswith(".md") else bases).append((rel, new_text))
 
     print(f"\n  migrate · {vault.name}\n")
     print(f"  state folder   {'.cerebro/ → .vault-memory/' if legacy_state else 'ok'}")
@@ -688,7 +689,10 @@ def cmd_migrate(args, cfg):
         print("      → " + ", ".join(f"{k}: {v}" for k, v in list(new_head.items())[:5]))
     if len(changed) > 5:
         print(f"    … and {len(changed) - 5} more")
-    if not (legacy_state or legacy_config or changed):
+    print(f"  bases          {len(bases)} .base views with legacy keys")
+    for rel, _ in bases[:5]:
+        print(f"    {rel}")
+    if not (legacy_state or legacy_config or changed or bases):
         print("\n  Nothing to migrate.")
         return
     if not args.apply:
@@ -701,12 +705,12 @@ def cmd_migrate(args, cfg):
     if legacy_config:
         C.save_config(vault, {**C.read_config_file(vault)})
     target = CT.backup_dir(cfg)
-    for rel, new_text in changed:
+    for rel, new_text in changed + bases:
         CT.backup(cfg, rel, target)
         NT._write_atomic(vault / rel, new_text)
     cfg = C.load_config(vault)
     IX.build(cfg, quiet=True)
-    print(f"\n  migrated · {len(changed)} notes · backup in {C.STATE}/backups/{target.name}/")
+    print(f"\n  migrated · {len(changed)} notes · {len(bases)} bases · backup in {C.STATE}/backups/{target.name}/")
     print("  If an environment variable still says CEREBRO_VAULT, rename it to VAULT_MEMORY_VAULT.")
 
 
