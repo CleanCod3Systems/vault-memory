@@ -1,0 +1,28 @@
+name: ci
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        # 3.9 is the real floor: launchd (Xcode) and /usr/bin/python3 on macOS use it.
+        python: ["3.9", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: tests
+        run: python -B -m unittest discover tests -v
+      - name: recall gate on the example vault
+        run: python -B scripts/cli.py --vault tests/example_vault eval --tsv tests/eval.tsv --minimum 20
+      - name: hook gate (hit@3 and zero noise on conversational prompts)
+        run: python -B scripts/cli.py --vault tests/example_vault eval --tsv tests/eval.tsv --hook --minimum 20
+      - name: manifests
+        run: |
+          python -c "import json; [json.load(open(f)) for f in ('.claude-plugin/plugin.json', '.claude-plugin/marketplace.json', '.codex-plugin/plugin.json', '.github/plugin/plugin.json', '.github/plugin/marketplace.json', '.agents/plugins/marketplace.json', 'gemini-extension.json', 'codex-mcp.json', 'hooks/claude-hooks.json')]"
+      - name: release build
+        run: python -B scripts/build_release.py --out public --base-url https://example.invalid

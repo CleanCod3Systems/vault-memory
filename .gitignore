@@ -1,0 +1,9 @@
+tests/example_vault/.vault-memory/*
+!tests/example_vault/.vault-memory/config.json
+__pycache__/
+*.pyc
+.DS_Store
+dist/
+public/
+.vercel/
+evals/results/

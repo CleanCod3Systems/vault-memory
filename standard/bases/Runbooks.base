@@ -1,0 +1,20 @@
+filters:
+  and:
+    - 'type == "runbook"'
+formulas:
+  ready: 'if(status == "pending", "📭 not written", "✅ usable")'
+  cited: 'file.backlinks.length'
+properties:
+  formula.ready: { displayName: Real status }
+  system: { displayName: System }
+  formula.cited: { displayName: Times cited }
+views:
+  - type: table
+    name: All
+    order: [formula.ready, file.name, system, area, formula.cited]
+  - type: table
+    name: Pending
+    filters:
+      and:
+        - 'status == "pending"'
+    order: [file.name, system, formula.cited]

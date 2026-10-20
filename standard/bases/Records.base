@@ -1,0 +1,37 @@
+# What happened: incidents, meetings and decisions.
+filters:
+  or:
+    - 'type == "incident"'
+    - 'type == "meeting"'
+    - 'type == "decision"'
+formulas:
+  icon: 'if(status == "resolved", "✅", if(status == "in progress", "⏳", if(status == "", "📭", "⚠️")))'
+  days_open: 'if(status != "resolved" && date, (today() - date(date)).days, "")'
+properties:
+  formula.icon: { displayName: "" }
+  formula.days_open: { displayName: "Days open" }
+  severity: { displayName: Sev }
+  system: { displayName: System }
+  class: { displayName: Class }
+  ticket: { displayName: Ticket }
+views:
+  - type: table
+    name: Open
+    filters:
+      and:
+        - 'status != "resolved"'
+    order: [formula.icon, file.name, date, status, severity, class, formula.days_open]
+  - type: table
+    name: By class
+    groupBy: { property: class, direction: ASC }
+    order: [formula.icon, file.name, date, status, severity, system]
+  - type: table
+    name: Without ticket
+    filters:
+      and:
+        - 'type == "incident"'
+        - '!ticket'
+    order: [file.name, date, status, severity]
+  - type: table
+    name: All
+    order: [formula.icon, file.name, date, status, severity, class, system, ticket]

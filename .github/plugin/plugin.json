@@ -1,0 +1,23 @@
+{
+  "name": "vault-memory",
+  "description": "Turns an Obsidian vault into memory any coding agent can query: local recall before searching elsewhere, a frontmatter contract, freshness (replaced, expired, contradictions), duplicate-safe note writing, pattern synthesis and a self-contained panel. Deterministic: no network, no model, no tokens. Replies in the user language.",
+  "version": "0.1.0",
+  "author": {
+    "name": "Giovanni Insfran",
+    "email": "gioinsfran98@gmail.com",
+    "url": "https://github.com/CleanCod3Systems"
+  },
+  "homepage": "https://github.com/CleanCod3Systems/vault-memory",
+  "repository": "https://github.com/CleanCod3Systems/vault-memory",
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "vault",
+    "memory",
+    "recall",
+    "knowledge-base",
+    "mcp",
+    "skills"
+  ],
+  "skills": "skills/"
+}

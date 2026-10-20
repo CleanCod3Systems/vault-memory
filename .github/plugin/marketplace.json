@@ -1,0 +1,26 @@
+{
+  "name": "vault-memory",
+  "description": "vault-memory: deterministic memory for Obsidian vaults.",
+  "owner": {
+    "name": "CleanCod3Systems",
+    "url": "https://github.com/CleanCod3Systems"
+  },
+  "plugins": [
+    {
+      "name": "vault-memory",
+      "description": "Turns an Obsidian vault into memory any coding agent can query: local recall before searching elsewhere, a frontmatter contract, freshness (replaced, expired, contradictions), duplicate-safe note writing, pattern synthesis and a self-contained panel. Deterministic: no network, no model, no tokens. Replies in the user language.",
+      "source": "./",
+      "category": "productivity",
+      "tags": [
+        "obsidian",
+        "vault",
+        "memory",
+        "recall",
+        "knowledge-base",
+        "mcp",
+        "skills"
+      ],
+      "skills": "skills/"
+    }
+  ]
+}

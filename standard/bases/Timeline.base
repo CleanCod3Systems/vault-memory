@@ -1,0 +1,23 @@
+# Everything dated in the vault on a single axis.
+filters:
+  and:
+    - 'date'
+formulas:
+  age: 'if(date, (today() - date(date)).days, "")'
+  icon: 'if(type == "incident", "🔴", if(type == "meeting", "🗣", if(type == "decision", "⚖", if(type == "period", "📅", if(type == "daily", "📓", "·")))))'
+properties:
+  formula.icon: { displayName: "" }
+  formula.age: { displayName: Days }
+  type: { displayName: Type }
+  area: { displayName: Area }
+views:
+  - type: table
+    name: Last 30 days
+    filters:
+      and:
+        - 'date(date) > today() - "30d"'
+    order: [formula.icon, date, file.name, type, area, status]
+  - type: table
+    name: By type
+    groupBy: { property: type, direction: ASC }
+    order: [formula.icon, date, file.name, area, status, formula.age]

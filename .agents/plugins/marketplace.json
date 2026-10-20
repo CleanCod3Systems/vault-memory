@@ -1,0 +1,21 @@
+{
+  "name": "vault-memory",
+  "interface": {
+    "displayName": "vault-memory"
+  },
+  "plugins": [
+    {
+      "name": "vault-memory",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/CleanCod3Systems/vault-memory.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

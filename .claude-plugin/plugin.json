@@ -1,0 +1,31 @@
+{
+  "name": "vault-memory",
+  "version": "0.1.0",
+  "description": "Turns an Obsidian vault into memory any coding agent can query: local recall before searching elsewhere, a frontmatter contract, freshness (replaced, expired, contradictions), duplicate-safe note writing, pattern synthesis and a self-contained panel. Deterministic: no network, no model, no tokens. Replies in the user language.",
+  "author": {
+    "name": "Giovanni Insfran",
+    "email": "gioinsfran98@gmail.com",
+    "url": "https://github.com/CleanCod3Systems"
+  },
+  "homepage": "https://github.com/CleanCod3Systems/vault-memory",
+  "repository": "https://github.com/CleanCod3Systems/vault-memory",
+  "license": "MIT",
+  "keywords": [
+    "obsidian",
+    "vault",
+    "memory",
+    "recall",
+    "knowledge-base",
+    "mcp",
+    "skills"
+  ],
+  "hooks": "./hooks/claude-hooks.json",
+  "userConfig": {
+    "vault": {
+      "type": "directory",
+      "title": "Obsidian vault for this profile",
+      "description": "Vault folder this profile uses. The CLI also reads VAULT_MEMORY_VAULT from the profile settings.json env (the Bash tool does not receive this option): if you set both, keep them equal.",
+      "required": false
+    }
+  }
+}

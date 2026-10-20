@@ -1,0 +1,59 @@
+{
+  "modules": {
+    "contract": true,
+    "graph": true,
+    "patterns": true,
+    "panel": false,
+    "bases": false,
+    "templates": false,
+    "tickets": true,
+    "chat": false,
+    "ids": true,
+    "schedule": false
+  },
+  "vault": "example_vault",
+  "areas": {
+    "Atlas/Incidents": "support",
+    "Atlas/Runbooks": "support",
+    "Atlas/Decisions": "product",
+    "Atlas/Docs": "engineering",
+    "Atlas/Daily": "log",
+    "Memory": "memory"
+  },
+  "default_area": "general",
+  "types_by_folder": {
+    "Atlas/Incidents": "incident",
+    "Atlas/Runbooks": "runbook",
+    "Atlas/Decisions": "decision",
+    "Atlas/Docs": "doc",
+    "Atlas/Daily": "daily",
+    "Templates": "template",
+    "Memory": "doc"
+  },
+  "references": {
+    "tickets": {
+      "prefixes": [
+        "ATL"
+      ],
+      "url": "https://tickets.example/ATL-{n}"
+    },
+    "chat": {
+      "domain": ""
+    },
+    "ids": {
+      "words": [
+        "order",
+        "customer",
+        "case"
+      ]
+    }
+  },
+  "language": {
+    "stemmer": "en"
+  },
+  "recall": {
+    "skip_paths": [
+      "Atlas/Daily/"
+    ]
+  }
+}

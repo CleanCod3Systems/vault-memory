@@ -1,0 +1,38 @@
+# Vault map — every note by type and by area.
+# Relies on the frontmatter contract (type + area). Computed by Obsidian: 0 tokens.
+filters:
+  and:
+    - 'file.ext == "md"'
+formulas:
+  signal: 'if((now() - file.mtime).days < 7, "🟢", if((now() - file.mtime).days < 60, "🟡", "⚪"))'
+  days_untouched: '(now() - file.mtime).days'
+  links: 'file.backlinks.length'
+properties:
+  type: { displayName: Type }
+  area: { displayName: Area }
+  date: { displayName: Date }
+  status: { displayName: Status }
+  formula.signal: { displayName: "" }
+  formula.days_untouched: { displayName: "Days untouched" }
+  formula.links: { displayName: Backlinks }
+views:
+  - type: table
+    name: By type
+    groupBy: { property: type, direction: ASC }
+    order: [formula.signal, file.name, area, date, status, formula.links]
+  - type: table
+    name: By area
+    groupBy: { property: area, direction: ASC }
+    order: [formula.signal, file.name, type, date, formula.links]
+  - type: table
+    name: Unlinked
+    filters:
+      and:
+        - 'file.backlinks.length == 0'
+    order: [file.name, type, area, formula.days_untouched]
+  - type: table
+    name: Changed this week
+    filters:
+      and:
+        - 'file.mtime > now() - "7d"'
+    order: [file.name, type, area, file.mtime]

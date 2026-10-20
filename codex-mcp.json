@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "vault-memory": {
+      "command": "vault-memory",
+      "args": [
+        "mcp"
+      ]
+    }
+  }
+}

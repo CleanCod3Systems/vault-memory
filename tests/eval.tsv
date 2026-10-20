@@ -1,0 +1,28 @@
+# query<TAB>fragment of the expected path · '-' = conversational (must emit nothing)
+checkout went down because of the certificate	expired certificate
+expired TLS certificate on the load balancer	expired certificate
+connection pool exhausted	connection pool
+payments declined by the antifraud rule	Payments declined by antifraud
+order 48213	Payments declined by antifraud
+ATL-160	Duplicate refund
+the refund was paid back twice	Duplicate refund
+confirmation emails are not arriving	Confirmation emails
+product search is slow	Slow product search
+stock went negative	Negative stock
+login fails with SSO	Login fails with SSO
+we deployed without running the migration	deploy without migration
+how do I renew the certificate	Renew TLS certificate
+the payments service returns 503	Restart the payments service
+diagnose a declined payment	Diagnose declined payments
+rotate the smtp credential	Rotate SMTP credentials
+we decided to use queues for refunds	Use queues for refunds
+antifraud threshold for new customers	Antifraud threshold
+how does the checkout architecture work	Checkout architecture
+what does order mean in the glossary	Orders glossary
+ok, go ahead with what I asked before	-
+thanks, see you tomorrow	-
+write me a script to rename photos	-
+looks good, commit it and let me know	-
+dale, seguí con lo que te pedí	-
+gracias, nos vemos mañana	-
+listo, commiteá y avisame cuando termines	-
