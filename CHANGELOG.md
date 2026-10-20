@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.2 — 2026-10-20
+
+- No top-level `bin/` folder: claude.ai chat and Cowork refuse a plugin that has one, so the
+  plugin could not be added there. The terminal command is the `~/.local/bin/vault-memory` shim
+  (`install-cli`); skills fall back to `scripts/cli.py` inside the plugin.
+
 ## 0.1.1 — 2026-10-20
 
 - `migrate` also rewrites Obsidian Bases (`.base` views): legacy keys in filters, formulas and

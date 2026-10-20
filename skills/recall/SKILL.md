@@ -9,8 +9,8 @@ Reply in the user's language, whatever the language of this file or of the notes
 
 The vault has its own index: local, deterministic, < 1 s, no tokens. **Query it before any
 external search.** CLI `vault-memory` (vault: `VAULT_MEMORY_VAULT` or `--vault`;
-`vault-memory info` says which one and which version). Without the CLI on PATH:
-`python3 <plugin>/scripts/cli.py`. Agents without a shell use the MCP server (`recall`,
+`vault-memory info` says which one and which version). Without the CLI on PATH (Cowork, or
+before `install-cli`): `python3 "${CLAUDE_SKILL_DIR}/../../scripts/cli.py"`. Agents without a shell use the MCP server (`recall`,
 `read_passage`, `write_note`).
 
 ## Search

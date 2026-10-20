@@ -16,7 +16,7 @@ import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-INCLUDE = [".claude-plugin", ".codex-plugin", ".github/plugin", ".agents", "bin", "docs", "hooks",
+INCLUDE = [".claude-plugin", ".codex-plugin", ".github/plugin", ".agents", "docs", "hooks",
            "scripts", "skills", "standard", "AGENTS.md", "CHANGELOG.md", "LICENSE", "README.md",
            "STANDARD.md", "codex-mcp.json", "gemini-extension.json"]
 SKIP_PARTS = {"__pycache__", ".DS_Store"}
