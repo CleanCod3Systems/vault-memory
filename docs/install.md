@@ -15,7 +15,7 @@ claude plugin install vault-memory@vault-memory
 Claude Code without git (≥ 2.1.224), from the hosted catalog (a zip with a pinned sha256):
 
 ```bash
-claude plugin marketplace add https://vault-memory.vercel.app/marketplace.json
+claude plugin marketplace add https://vault-memory-vert.vercel.app/marketplace.json
 claude plugin install vault-memory@vault-memory
 ```
 

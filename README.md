@@ -49,7 +49,7 @@ language**; search works over notes written in English or Spanish (others: `stem
 Without git (Claude Code ≥ 2.1.224), from the hosted catalog:
 
 ```text
-/plugin marketplace add https://vault-memory.vercel.app/marketplace.json
+/plugin marketplace add https://vault-memory-vert.vercel.app/marketplace.json
 /plugin install vault-memory@vault-memory
 ```
 
