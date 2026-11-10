@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.2.0 — 2026-11-10
+
+- `hook.mode` (`all` default, `first`, `off`): `first` searches only the first prompt of a session
+  and prompts that carry an ID or ticket. The hook also ignores prompts that start with
+  `<agent-message` or `<pasted_content` (not typed by a person).
+- Gate before external searches (`hooks/gate.py`, PreToolUse): for tools listed in `gate.tools`
+  it adds one `[vault] already documented: <path> — <passage>` line when a single current note
+  clearly answers the query. Never blocks, never repeats a note in a session, logs
+  `gate_hit`/`gate_miss`. Uses the existing index without reindexing; caches it as
+  `gate-index-*.bin` in the state folder.
+- Telemetry reads `CLAUDE_CODE_SESSION_ID` (sessions were all logged as `cli`, so the Stop hook
+  never matched them) and `usage --tokens` counts hook pointers sent as a list of strings.
+
 ## 0.1.2 — 2026-10-20
 
 - No top-level `bin/` folder: claude.ai chat and Cowork refuse a plugin that has one, so the
