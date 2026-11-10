@@ -28,7 +28,8 @@ language**; search works over notes written in English or Spanish (others: `stem
 | | |
 |---|---|
 | **Recall** | Search by text, by ID (order, case, record) and by ticket key. Returns the exact paragraph, not the whole file. Refreshes itself when the vault changed |
-| **Automatic recall** (Claude Code) | A hook leaves up to 3 pointers to relevant notes on each prompt — and stays silent on chat ("ok, go ahead", "thanks") |
+| **Automatic recall** (Claude Code) | A hook leaves up to 3 pointers to relevant notes on each prompt — and stays silent on chat ("ok, go ahead", "thanks"). `hook.mode` in `config.json`: `all` (default, every prompt), `first` (the first prompt of the session, or any prompt with an ID or ticket) or `off` |
+| **Gate before external searches** (Claude Code) | Before a tool listed in `gate.tools` (a database, logs, chat, web), one line points to a current note that already answers it. Never blocks. Off until configured: `"gate": {"tools": {"mcp__db__query": "reason", "mcp__logs__": "query"}}` maps a tool name or prefix to the `tool_input` field used as the query (`"*"` joins every string). The plugin runs it on MCP tools, `WebFetch` and `WebSearch`; to cover a `Bash` command, add a `PreToolUse` hook with matcher `Bash` running `hooks/gate.py` in your own settings |
 | **Freshness** | Replaced, expired and unverified notes rank lower; two current notes about the same fact are reported as a contradiction |
 | **Safe writing** | `vault-memory note` validates the contract and refuses duplicates: it makes you update or replace instead |
 | **Contract** | Predictable frontmatter is what makes everything else possible. `doctor` says how much is missing; `fix` fills it **without overwriting anything and without moving files** |
