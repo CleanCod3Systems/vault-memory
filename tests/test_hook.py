@@ -65,6 +65,43 @@ class TestHook(unittest.TestCase):
         self.assertEqual(self.hook("AUTOMATIC MODE: checkout went down because of the certificate",
                                    hook_config=config), "")
 
+    def test_skips_agent_and_pasted_prompts_by_default(self):
+        for prefix in ("<agent-message from=\"w1\">", "<pasted_content id=\"1\">"):
+            self.assertEqual(self.hook(prefix + " checkout went down because of the certificate 12345"), "", prefix)
+        self.assertIn("[vault]", self.hook("checkout went down because of the certificate <pasted_content>x"))
+
+    def test_mode_off_never_searches_and_logs_why(self):
+        config = {"mode": "off"}
+        self.assertEqual(self.hook("checkout went down because of the certificate, what do we do",
+                                   hook_config=config, session_id="m0"), "")
+        log = (self.vault / ".vault-memory" / "telemetry.jsonl").read_text(encoding="utf-8")
+        self.assertIn("mode_off", log)
+
+    def test_mode_first_searches_only_the_first_prompt_or_ids(self):
+        config = {"mode": "first"}
+        first = "checkout went down because of the certificate, what do we do"
+        later = "payments declined by the antifraud rule, how do we handle it"
+        self.assertTrue(self.hook(first, hook_config=config, session_id="f1"))
+        self.assertEqual(self.hook(later, session_id="f1"), "", "not the first prompt, no ID")
+        self.assertIn("antifraud", self.hook("qué pasó con el pedido 48213", session_id="f1"))
+        self.assertTrue(self.hook(later, session_id="f2"), "another session has its own first prompt")
+
+    def test_mode_first_is_not_used_up_by_chat(self):
+        config = {"mode": "first"}
+        self.assertEqual(self.hook("thanks, see you tomorrow", hook_config=config, session_id="f3"), "")
+        self.assertTrue(self.hook("checkout went down because of the certificate, what do we do", session_id="f3"))
+
+    def test_mode_first_without_session_behaves_as_all(self):
+        config = {"mode": "first"}
+        later = "payments declined by the antifraud rule, how do we handle it"
+        self.assertTrue(self.hook(later, hook_config=config))
+        self.assertTrue(self.hook(later))
+
+    def test_mode_all_is_the_default(self):
+        later = "payments declined by the antifraud rule, how do we handle it"
+        self.assertTrue(self.hook("checkout went down because of the certificate", session_id="a1"))
+        self.assertTrue(self.hook(later, session_id="a1"))
+
     def test_profile_vault_beats_environment(self):
         # A project settings.json can override the environment with another profile's vault:
         # the active profile settings.json must win.

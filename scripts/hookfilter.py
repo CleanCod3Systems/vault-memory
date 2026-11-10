@@ -9,7 +9,10 @@ import unicodedata
 DEFAULTS = {"domain": "", "memory_only": "", "memory_prefix": "", "floor": 8,
             # Prompts nobody typed (background agent notices, bots): they carry IDs and
             # domain vocabulary, so without this they pass the filter and are noise.
-            "skip_prefixes": ["<task-notification"],
+            "skip_prefixes": ["<task-notification", "<agent-message", "<pasted_content"],
+            # When it searches: "all" every prompt, "first" the first human prompt of the
+            # session and any prompt that carries an ID or ticket, "off" never.
+            "mode": "all",
             "relative": 0.45, "max": 3, "min_length": 15, "format": "compact", "repeat_max": 2,
             # Brief mode: with a clear answer (high top and the second far behind) the top-1
             # passage is added, to answer without opening the note. 0 turns it off.
@@ -65,6 +68,17 @@ def request_terms(prompt):
 def is_conversational(prompt):
     """A prompt with no content word: "ok, go ahead and commit", "dale, seguí", "thanks"."""
     return not ID.search(prompt) and not request_terms(prompt)
+
+
+def mode_allows(prompt, hook, session_id, seen_before):
+    """(allowed, reason_if_not). `seen_before`: the session already went through the hook.
+    Without a session id "first" cannot tell, so it behaves as "all"."""
+    mode = hook["mode"]
+    if mode == "off":
+        return False, "mode_off"
+    if mode == "first" and session_id and seen_before and not ID.search(prompt):
+        return False, "not_first"
+    return True, ""
 
 
 def decide(prompt, cfg):

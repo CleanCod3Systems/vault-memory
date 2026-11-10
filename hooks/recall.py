@@ -56,11 +56,21 @@ def main():
     hook = HF.options(cfg)
 
     def silent(reason):
-        if TL.options(cfg)["log_silent"] and not prompt.startswith(("/", "!")):
+        # In "first" mode the silent events are what marks a session as already started.
+        if (TL.options(cfg)["log_silent"] or hook["mode"] == "first") and not prompt.startswith(("/", "!")):
             TL.record(vault, {"ev": "hook_silent", "reason": reason, "q": prompt[:200]}, cfg, session_id)
 
     should_search, memory_only, reason = HF.decide(prompt, cfg)
     if not should_search:
+        return silent(reason)
+    events = TL.session_events(vault, session_id) if session_id else []
+    # Only a prompt that was searched for counts as "the first": chat ("ok"), automatic
+    # notices and short prompts do not use it up.
+    seen = any(e.get("ev") in ("hook", "hook_brief") or
+               (e.get("ev") == "hook_silent" and e.get("reason") in ("floor", "domain", "repeated"))
+               for e in events)
+    allowed, reason = HF.mode_allows(prompt, hook, session_id, seen)
+    if not allowed:
         return silent(reason)
     try:
         # Without --no-auto: the fingerprint check is cheap and avoids answering from a stale index.
@@ -71,8 +81,7 @@ def main():
     except Exception:
         return
 
-    exclude, last = (repeated(TL.session_events(vault, session_id), hook["repeat_max"])
-                     if session_id else (set(), []))
+    exclude, last = repeated(events, hook["repeat_max"]) if session_id else (set(), [])
     hits, reason = HF.select(rows, prompt, cfg, memory_only, exclude)
     if not hits:
         return silent(reason)
