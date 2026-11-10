@@ -56,6 +56,28 @@ class TestMetrics(unittest.TestCase):
         self.assertEqual(event["q"], "")
 
 
+class TestSessionId(unittest.TestCase):
+    def sid(self, **env):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        (tmp / ".vault-memory").mkdir()
+        keep = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_CODE_SESSION_ID", "CLAUDE_SESSION_ID")}
+        old = dict(os.environ)
+        os.environ.clear()
+        os.environ.update({**keep, **env})
+        try:
+            TL.record(tmp, {"ev": "note"})
+        finally:
+            os.environ.clear()
+            os.environ.update(old)
+        return json.loads((tmp / ".vault-memory" / TL.FILE).read_text(encoding="utf-8"))["sid"]
+
+    def test_prefers_claude_code_session_id_then_legacy_then_cli(self):
+        self.assertEqual(self.sid(CLAUDE_CODE_SESSION_ID="new", CLAUDE_SESSION_ID="old"), "new")
+        self.assertEqual(self.sid(CLAUDE_SESSION_ID="old"), "old")
+        self.assertEqual(self.sid(), "cli")
+
+
 class TestHooksRecord(unittest.TestCase):
     def setUp(self):
         self.tmp = Path(tempfile.mkdtemp())
@@ -133,6 +155,21 @@ class TestTokens(unittest.TestCase):
         self.assertEqual(cost["read_bytes"], 10)
         self.assertEqual(cost["hook_ms_median"], 120)
         self.assertEqual(cost["sessions_with_memory"], 1)
+
+
+    def test_counts_hook_pointer_when_content_is_a_list_of_strings(self):
+        # Real transcripts: attachment type hook_additional_context, content is a list of str,
+        # no durationMs.
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp)
+        (tmp / "projects" / "p").mkdir(parents=True)
+        line = {"type": "attachment", "attachment": {"type": "hook_additional_context", "hookName": "UserPromptSubmit",
+                                                     "content": ["[vault] Memory/x.md (doc)"]}}
+        (tmp / "projects" / "p" / "s.jsonl").write_text(json.dumps(line), encoding="utf-8")
+        cost = TL.tokens(tmp / "projects", tmp / "vault", days=1)
+        self.assertEqual(cost["pointers"], 1)
+        self.assertEqual(cost["hook_bytes"], len("[vault] Memory/x.md (doc)"))
+        self.assertGreater(cost["estimated_tokens"], 0)
 
 
 class TestBriefPassage(unittest.TestCase):

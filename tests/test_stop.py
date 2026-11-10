@@ -50,6 +50,13 @@ class TestStop(Base):
         self.assertIn("vault-memory note", out["reason"])
         self.assertEqual(self.run_hook("stop.py"), "", "once per session")
 
+    def test_cli_recall_gap_is_attributed_to_the_claude_code_session(self):
+        env = {**self.env, "CLAUDE_CODE_SESSION_ID": "s1"}
+        subprocess.run([sys.executable, "-B", str(REPO / "scripts" / "cli.py"), "--vault", str(self.vault),
+                        "recall", "zzqqxx nonexistent topic"], check=True, capture_output=True, env=env)
+        out = json.loads(self.run_hook("stop.py"))
+        self.assertEqual(out["decision"], "block")
+
     def test_expired_note_read_proposes_verifying(self):
         self.event(ev="read", p="Memory/Temporary shipping provider.md")
         out = json.loads(self.run_hook("stop.py"))

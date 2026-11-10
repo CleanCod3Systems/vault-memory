@@ -49,7 +49,8 @@ def record(vault, event, cfg_dict=None, session_id=None):
         if path.exists() and path.stat().st_size > MAX_BYTES:
             path.replace(path.with_suffix(".jsonl.1"))
         line = {"t": dt.datetime.now().isoformat(timespec="seconds"),
-                "sid": session_id or os.environ.get("CLAUDE_SESSION_ID", "cli"), **event}
+                "sid": session_id or os.environ.get("CLAUDE_CODE_SESSION_ID")
+                or os.environ.get("CLAUDE_SESSION_ID") or "cli", **event}
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(line, ensure_ascii=False) + "\n")
     except Exception:
@@ -109,7 +110,8 @@ def _text(content):
     if isinstance(content, str):
         return content
     if isinstance(content, list):
-        return "".join(c.get("text", "") for c in content if isinstance(c, dict))
+        return "".join(c if isinstance(c, str) else c.get("text", "")
+                       for c in content if isinstance(c, (str, dict)))
     return ""
 
 
@@ -141,7 +143,7 @@ def tokens(transcripts, vault, days=14, bytes_per_token=3.6):
                 continue
             attachment = event.get("attachment")
             if isinstance(attachment, dict) and attachment.get("hookName") == "UserPromptSubmit":
-                content = attachment.get("content") or attachment.get("stdout") or ""
+                content = _text(attachment.get("content")) or _text(attachment.get("stdout"))
                 if "[vault]" in content:
                     totals["pointers"] += 1
                     totals["hook_bytes"] += len(content.encode("utf-8"))
