@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.5.0 — 2026-11-11
+
+- `vault-memory bench` (`scripts/bench.py`): recall measured on the vault's own history. Cases
+  are mined from telemetry (a question, then a note read within 15 minutes in the same
+  session, leaving out notes written in that session and prompts of automatic runs) plus
+  `eval.tsv`; hit@1, hit@3 and MRR@10 with a seeded bootstrap interval. Writes `bench.json`,
+  `bench.tsv` and `usage.json`; `refresh` runs it.
+- `bench --tune` tries `recall.k1`, `recall.b`, `recall.title_bonus` and `recall.prior_weight`
+  (a bounded lift from past reads, off by default, computed without leaks: only earlier reads
+  of other sessions). It picks on one half of the cases and measures on the other; `--apply`
+  writes only when that held-out gain has a 95% interval above zero with 30+ cases.
+- Reads are counted when a note is opened with a shell command (`cat`, `sed`, `head`…) or the
+  MCP `read_passage`, not only the Read tool (PostToolUse matcher `Read|Bash`). Recall events
+  record the top 3 paths.
+- The gate reads list fields too (search tools that take `keywords`).
+- On Mondays the daily summary adds one line: suggestions used, recall MRR and notes verified.
+
 ## 0.4.0 — 2026-11-11
 
 - Review against the source (`scripts/review.py`, `vault-memory review`, skill `verify`). The
