@@ -14,6 +14,7 @@
   vault-memory modules [--on X] [--off Y]         what is active; turn on and off
   vault-memory migrate [--apply]                  rewrite a legacy (Spanish) vault to the current names
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
+  vault-memory review --budget | --calibration    today's check count; does confidence hold up?
   vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
   vault-memory bases [--install] [--folder F]     standard Obsidian views (.base) missing in the vault
   vault-memory links [--n 20]                     notes that talk about the same thing and are not linked
@@ -52,6 +53,7 @@ import panel as PN  # noqa: E402
 import patterns as PT  # noqa: E402
 import recall as RC  # noqa: E402
 import review as RV  # noqa: E402
+import calibration as CB  # noqa: E402
 import schedule as SC  # noqa: E402
 import telemetry as TL  # noqa: E402
 import today as TD  # noqa: E402
@@ -667,6 +669,8 @@ def _print_distill(result):
           + f" · renewed {result['renewed']} · archived {result['archived']}"
           + (f" · errors {result['errors']}" if result["errors"] else "")
           + (f" · already done: {', '.join(result['skipped'])}" if result["skipped"] else ""))
+    if result.get("write"):
+        print(f"    learned notes → {result['write']['to']} ({result['write']['reason']})")
 
 
 def cmd_distill(args, cfg):
@@ -740,19 +744,47 @@ def cmd_review(args, cfg):
             print(f"  {result['verdict']}  {result['p']}"
                   + (f"  ({result['confidence']}/10)" if result.get("confidence") else ""))
         return
-    result = RV.queue(cfg, args.n)
+    if args.calibration:
+        _print_calibration(CB.report(cfg), args.json)
+        return
+    result = RV.queue(cfg, args.n, cap=args.budget or None, use_budget=args.budget is not None)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=1))
         return
-    cov = result["coverage"]
+    cov, plan = result["coverage"], result["budget"]
     print(f"\n  reviewable notes {cov['notes']} · verified and current {cov['verified_current']} · "
-          f"outdated {cov['outdated']} · unsure {cov['unsure']} · due {cov['due']}\n")
+          f"outdated {cov['outdated']} · unsure {cov['unsure']} · due {cov['due']}")
+    print(f"  budget today {plan['n']} (base {plan['base']} + {plan['high']} high priority, "
+          f"max {plan['max']})\n")
     if not result["queue"]:
         print("  nothing due for review")
         return
     for i, row in enumerate(result["queue"], 1):
         print(f"  {i:>2}. [{row['score']:>4}] {row['p']}")
         print(f"      {'; '.join(row['reasons'])}")
+
+
+def _print_calibration(data, as_json):
+    if as_json:
+        print(json.dumps(data, ensure_ascii=False, indent=1))
+        return
+    pct = lambda x: "—" if x is None else f"{x:.0%}"          # noqa: E731
+    print(f"\n  calibration · {data['reviews']} reviews logged · a rate counts from "
+          f"{data['min_samples']} rechecks on a later day\n")
+    print("  confidence  rechecked  held  failed  unsure next  hold rate  95% interval   calibrated")
+    for row in data["buckets"]:
+        interval = f"[{pct(row['low'])}, {pct(row['high'])}]" if row["n"] else "—"
+        calibrated = f"{row['calibrated']:.2f}" if row["enough"] else "too few"
+        print(f"  {row['bucket']:<10}  {row['n']:<9}  {row['held']:<4}  {row['failed']:<6}  "
+              f"{row['unsure_next']:<11}  {pct(row['rate']):<9}  {interval:<13}  {calibrated}")
+    if data["same_day"]:
+        print(f"  ({data['same_day']} same-day re-checks left out: corrections, not tests of time)")
+    lr = data["learned"]
+    print(f"\n  learned notes  audited {lr['audited']} · confirmed {lr['confirmed']} · outdated "
+          f"{lr['outdated']} · unsettled {lr['unsettled']} · precision {pct(lr['precision'])}"
+          + (f" [{pct(lr['low'])}, {pct(lr['high'])}]" if lr["audited"] else ""))
+    auto = data["autonomy"]
+    print(f"  learned notes → {'notes' if auto['auto'] else 'inbox'} ({auto['reason']})")
 
 
 def cmd_bench(args, cfg):
@@ -1116,6 +1148,11 @@ def main():
     p.add_argument("--evidence", help="what was checked and where (required when recording)")
     p.add_argument("--volatility", choices=["live", "stable"], help="how fast the fact changes")
     p.add_argument("--n", type=int, help="queue length (default `review.n`, 20)")
+    p.add_argument("--budget", type=int, nargs="?", const=0, metavar="MAX",
+                   help="only today's budget: review.daily.base plus one per high-priority note, "
+                        "up to MAX (default review.daily.max)")
+    p.add_argument("--calibration", action="store_true",
+                   help="does confidence hold up at the next review? and learned-note precision")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_review)
     p = sub.add_parser("mcp", help="MCP server over stdio (desktop chat, Codex, Cursor, Gemini, Copilot)")

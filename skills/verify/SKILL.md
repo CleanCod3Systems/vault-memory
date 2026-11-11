@@ -12,9 +12,12 @@ another note, a summary or what you remember.
 ## 1. Take the queue
 ```bash
 vault-memory review --json --n 10     # most urgent first, with the reasons
+vault-memory review --json --budget   # scheduled run: only today's budget
 ```
 Order: contradicted notes, notes learned from sessions and never audited, notes people use,
-notes past their review interval. Work top-down; stop at the requested number.
+notes past their review interval. Work top-down; stop at the requested number. In a scheduled
+run, check exactly `budget.n` notes: it is `review.daily.base` plus one per contradicted or
+never-audited learned note waiting, up to `review.daily.max`.
 
 ## 2. Check each note
 1. Read the note. List its checkable claims (at most 5): names, numbers, states, dates,
@@ -49,6 +52,9 @@ vault-memory review "PATH" --verdict unsure --evidence "<what was missing>"
 - **Outdated and the source shows what is true now:** write it, replacing the old note,
   then record the new one as confirmed:
   `vault-memory note --title "…" --type … --folder <distill.folder> --body "…" --source "review <date>: <source>" --replaces "Old note"`.
+- Every check is logged; later checks of the same note measure whether your confidence held
+  (`vault-memory review --calibration`). Give an `unsure` its confidence too: it calibrates
+  the low end.
 
 ## Rules
 - Never `confirmed` from memory, from the vault itself or from a model's opinion.

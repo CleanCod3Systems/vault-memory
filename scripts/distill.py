@@ -3,7 +3,8 @@
 Pipeline: read the transcripts of one local day → redact → ask a provider for up to N
 cross-project facts with a verbatim quote → verify (quote is really in the session, a second
 call says "supported", no sensitive data in the result) → write to the inbox (auto: false) or
-through `note.write` with an expiry (auto: true). Notes that get read afterwards stay alive
+through `note.write` with an expiry (auto: true, or "earned" while audits of learned notes
+show they hold: calibration.py). Notes that get read afterwards stay alive
 (`renew_used` moves `expires`); only a review against the source verifies them (review.py).
 
 The provider is an injected callable `provider(prompt, schema) -> dict`; nothing in here
@@ -21,6 +22,7 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+import calibration as CB
 import core as C
 import note as N
 import recall as RC
@@ -644,6 +646,10 @@ def run(cfg, day=None, provider=None, dry_run=False, force=False):
              "discarded_reasons": {}}
     if not opts["enabled"]:
         return total
+    # `auto: "earned"` writes notes only while audits show learned notes hold (calibration.py)
+    decision = CB.autonomy(cfg)
+    opts = {**opts, "auto": decision["auto"]}
+    total["write"] = {"to": "notes" if decision["auto"] else "inbox", "reason": decision["reason"]}
     if not dry_run:
         # upkeep first, so its counts travel in the day's event
         total["renewed"], total["archived"] = renew_used(cfg), archive_expired(cfg)
@@ -661,6 +667,7 @@ def run(cfg, day=None, provider=None, dry_run=False, force=False):
             last = one == ran[-1]
             TL.record(cfg["_vault"], {"ev": "distill", "day": one,
                                       **{k: counts[k] for k in COUNTS if k != "errors"},
+                                      "write": total["write"]["to"],
                                       "renewed": total["renewed"] if last else 0,
                                       "archived": total["archived"] if last else 0}, cfg)
     if not dry_run and not ran and (total["renewed"] or total["archived"]):

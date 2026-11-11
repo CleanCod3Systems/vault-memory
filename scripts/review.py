@@ -14,11 +14,15 @@ Frontmatter a review writes (only these keys, never the body; a backup is kept):
     confidence: 8-10             confirmed only: how much primary evidence backs it
     review:     outdated|unsure  the source says otherwise / it could not be settled
     volatility: live|stable      how fast the fact changes (optional)
+
+Each recorded check also adds one line to `<state>/reviews.jsonl`, the log calibration.py
+measures confidence and learned-note precision against.
 """
 import datetime as dt
 import re
 from collections import defaultdict
 
+import calibration as CB
 import contract as CT
 import core as C
 import distill as DS
@@ -28,7 +32,10 @@ import note as N
 import recall as RC
 import telemetry as TL
 
-DEFAULTS = {"n": 20, "gap_days": 7, "usage_days": 30, "min_confirm": 8}
+DEFAULTS = {"n": 20, "gap_days": 7, "usage_days": 30, "min_confirm": 8,
+            # a scheduled run checks `base` notes plus one per high-priority note waiting
+            # (contradicted, or learned and never audited), at most `max`
+            "daily": {"base": 4, "max": 8}, "calibration_min": CB.MIN_SAMPLES}
 VERDICTS = ("confirmed", "outdated", "unsure")
 CONTRADICTS = re.compile(r"Contradicts \[\[([^\]|#]+)")
 EVIDENCE_MAX = 300
@@ -79,8 +86,17 @@ def _disputed(cfg, docs, learned):
     return out
 
 
-def queue(cfg, n=None, today=None):
-    """{"queue": [rows by priority], "coverage": counts}. Same input, same output."""
+def budget(cfg, high, due, cap=None):
+    """How many notes today's run checks: `daily.base`, plus one per high-priority note
+    waiting, up to `daily.max` (or `cap`), never more than are due."""
+    daily = {**DEFAULTS["daily"], **(options(cfg).get("daily") or {})}
+    base, top = int(daily["base"]), int(cap if cap is not None else daily["max"])
+    return {"n": min(due, top, base + high), "base": base, "max": top, "high": high}
+
+
+def queue(cfg, n=None, today=None, cap=None, use_budget=False):
+    """{"queue": [rows by priority], "coverage": counts, "budget": how many to check today}.
+    With `use_budget` the queue is cut to that count. Same input, same output."""
     opts = options(cfg)
     today = today or C.today()
     settings = cfg["freshness"]
@@ -89,7 +105,7 @@ def queue(cfg, n=None, today=None):
     used = _usage(cfg, int(opts["usage_days"]))
     disputed = _disputed(cfg, docs, learned)
     coverage = {"notes": 0, "verified_current": 0, "outdated": 0, "unsure": 0, "due": 0}
-    rows = []
+    rows, high = [], 0
     for d in docs:
         is_learned = d["p"].startswith(learned + "/")
         if not (FR.reviewable(d, settings) or is_learned):
@@ -126,6 +142,7 @@ def queue(cfg, n=None, today=None):
             reasons.append(f"verified {age} d ago, due every {limit} d")
         if not reasons:
             continue
+        high += d["p"] in disputed or (is_learned and not d.get("confidence"))
         if d.get("volatility") == "live":
             score += 3
         if used.get(d["p"]):
@@ -139,7 +156,9 @@ def queue(cfg, n=None, today=None):
                      "learned": is_learned})
     rows.sort(key=lambda r: (-r["score"], r["p"]))
     coverage["due"] = len(rows)
-    return {"queue": rows[:int(n or opts["n"])], "coverage": coverage}
+    plan = budget(cfg, high, len(rows), cap)
+    length = plan["n"] if use_budget else int(n or opts["n"])
+    return {"queue": rows[:length], "coverage": coverage, "budget": plan}
 
 
 def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=None):
@@ -172,6 +191,7 @@ def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=
         raise N.NoteError(2, f"{rel} has no frontmatter: normalize it with  vault-memory fix --apply")
     fm, _ = C.frontmatter(text)
     day = (today or C.today()).isoformat()
+    prev_verdict, prev_confidence, prev_checked = CB.previous(cfg, rel, fm)
     keys = {"checked": day, "evidence": evidence[:EVIDENCE_MAX]}
     drop = []
     if verdict == "confirmed":
@@ -188,6 +208,12 @@ def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=
     CT.backup(cfg, rel)
     N.replace_if_unchanged(path, text, "---\n" + head + "\n---" + text[end + 4:])
     IX.build(cfg, quiet=True, incremental=True)
+    folder = DS.options(cfg)["folder"].strip("/")
+    CB.append(cfg, {"day": day, "p": rel, "verdict": verdict, "confidence": confidence,
+                    "volatility": volatility or fm.get("volatility") or None,
+                    "learned": rel.startswith(folder + "/") or fm.get("source", "").startswith("distill"),
+                    "prev_verdict": prev_verdict, "prev_confidence": prev_confidence,
+                    "prev_checked": prev_checked})
     TL.record(cfg["_vault"], {"ev": "review", "p": rel, "verdict": verdict,
                               **({"confidence": confidence} if verdict == "confirmed" else {})}, cfg)
     return {"p": rel, "verdict": verdict, **({"confidence": confidence} if confidence else {})}

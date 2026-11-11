@@ -12,6 +12,7 @@ import datetime as dt
 import json
 from pathlib import Path
 
+import calibration as CB
 import core as C
 import legacy as LG
 import telemetry as TL
@@ -166,6 +167,23 @@ def _memory_line(cfg, today):
             f"{cov.get('verified_current', 0)}/{cov.get('notes', 0)} notes verified")
 
 
+def _learned_line(cfg, today):
+    """Mondays, once enough learned notes were audited: how many held, and where distill writes."""
+    if today.weekday() != 0:
+        return ""
+    try:
+        learned = CB.precision(CB.read(cfg))
+        need = int(CB.earned_options(cfg)["earned_min_audits"])
+        if learned["audited"] < max(need, 1):
+            return ""
+        auto = CB.autonomy(cfg, learned)
+    except Exception:
+        return ""
+    return (f"learned notes: {learned['precision']:.0%} confirmed on {learned['audited']} audits "
+            f"(lower bound {learned['low']:.2f})" + (f" · distill → {'notes' if auto['auto'] else 'inbox'}"
+                                                    if auto["mode"] == "earned" else ""))
+
+
 def render(cfg, all_items=False, today=None):
     """The summary as text. Deterministic for a given `today`."""
     opts = options(cfg)
@@ -209,6 +227,9 @@ def render(cfg, all_items=False, today=None):
     memory = _memory_line(cfg, today)
     if memory:
         lines.append(memory)
+    learned = _learned_line(cfg, today)
+    if learned:
+        lines.append(learned)
     if all_items:
         return "\n".join(lines)
 
