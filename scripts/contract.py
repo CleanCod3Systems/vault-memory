@@ -148,3 +148,47 @@ def retype(cfg, apply=False):
         print(f"  {len(drift)} fixed · backup in {cfg['_state'].name}/backups/{target.name}/")
     else:
         print("\nDry run. To apply:  vault-memory retype --apply")
+
+
+# ──────────────────────────────────────────────── Obsidian Properties rules
+# Obsidian reads frontmatter as Properties with a few rules of its own
+# (https://obsidian.md/help/properties): no nested values, a wikilink in a value must be
+# quoted (unquoted, YAML reads `[[X]]` as a list inside a list and the link is lost), each
+# key once, and `tag`, `alias`, `cssclass` were replaced by their plurals in 1.9.
+DEPRECATED = {"tag": "tags", "alias": "aliases", "cssclass": "cssclasses"}
+RE_KEY_LINE = re.compile(r"^([A-Za-z0-9_][\w\- ]*):(.*)$")
+RE_NESTED = re.compile(r"^\s+[\w\-]+:(\s|$)")
+RE_LIST_LINK = re.compile(r"^\s*-\s*\[\[")
+
+
+def property_issues(cfg):
+    """[{"p", "issue", "key"}] for every note that breaks a Properties rule. Read only."""
+    out = []
+    for path, rel in C.walk(cfg):
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        end = text.find("\n---", 3)
+        if not text.startswith("---") or end < 0:
+            continue
+        lines = text[3:end].splitlines()
+        seen, key = set(), None
+        for i, line in enumerate(lines):
+            match = RE_KEY_LINE.match(line)
+            if match:
+                key, value = match.group(1).strip(), match.group(2).strip()
+                if key in seen:
+                    out.append({"p": rel, "issue": "repeated key", "key": key})
+                seen.add(key)
+                if key in DEPRECATED:
+                    out.append({"p": rel, "issue": f"deprecated key (use {DEPRECATED[key]})", "key": key})
+                if value.startswith("[["):
+                    out.append({"p": rel, "issue": "unquoted wikilink", "key": key})
+                if not value:
+                    following = next((x for x in lines[i + 1:] if x.strip()), "")
+                    if RE_NESTED.match(following):
+                        out.append({"p": rel, "issue": "nested value", "key": key})
+            elif key and RE_LIST_LINK.match(line):
+                out.append({"p": rel, "issue": "unquoted wikilink", "key": key})
+    return out
