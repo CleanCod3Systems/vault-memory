@@ -17,6 +17,7 @@ import re
 import shutil
 import subprocess
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -29,7 +30,8 @@ import telemetry as TL
 DEFAULTS = {"enabled": False, "auto": False, "provider": "claude-cli", "model": "haiku",
             "folder": "Memory/learned", "exclude_paths": [], "max_per_session": 3,
             "expires_days": 90, "min_prompts": 2, "max_chars": 40000, "timeout": 180,
-            "command": "claude", "catch_up_days": 7, "archive": "_archive"}
+            "command": "claude", "catch_up_days": 7, "archive": "_archive",
+            "base_url": "", "api_key_env": ""}
 EVIDENCE_MAX = 200
 API_MODELS = {"haiku": "claude-haiku-5-5"}
 NOT_HUMAN = ("<task-notification", "<command-", "<local-command", "<system-reminder",
@@ -330,14 +332,127 @@ def anthropic_api_provider(opts):
     return call
 
 
+PROVIDERS = ("claude-cli", "anthropic-api", "openai-compat", "ollama")
+OPENAI_URL = "https://api.openai.com/v1"
+OLLAMA_URL = "http://localhost:11434"
+
+
+def _json_text(text):
+    """JSON object from a model reply, tolerating a ```json fence around it."""
+    text = (text or "").strip()
+    fence = re.match(r"^```[a-zA-Z]*\s*\n?(.*?)\n?```$", text, re.S)
+    if fence:
+        text = fence.group(1).strip()
+    try:
+        out = json.loads(text)
+    except ValueError:
+        raise DistillError("the model did not return JSON")
+    if not isinstance(out, dict):
+        raise DistillError("the model did not return a JSON object")
+    return out
+
+
+def _model_name(opts):
+    """Claude aliases (API_MODELS) only apply to Claude; other servers need an explicit model."""
+    if opts["model"] == DEFAULTS["model"]:
+        raise DistillError(f"set `distill.model` to a model your {opts['provider']} server serves")
+    return str(opts["model"])
+
+
+def _post_json(url, body, headers, timeout, label):
+    request = urllib.request.Request(url, data=json.dumps(body).encode("utf-8"), method="POST",
+                                     headers={"content-type": "application/json", **headers})
+    try:
+        with urllib.request.urlopen(request, timeout=timeout) as response:
+            return json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        raise DistillError(f"{label} error {e.code}") from None
+    except (urllib.error.URLError, OSError, ValueError) as e:
+        raise DistillError(f"{label} call failed: {getattr(e, 'reason', e)}") from None
+
+
+def _openai_key_env(opts):
+    return opts.get("api_key_env") or "OPENAI_API_KEY"
+
+
+def openai_compat_provider(opts):
+    """OpenAI-style POST {base_url}/chat/completions (OpenAI, LM Studio, LiteLLM, vLLM, Ollama /v1).
+    Asks for json_schema output; if the server answers 400, retries once with json_object and the
+    schema written into the prompt. The key is optional (local servers)."""
+    def call(prompt, schema):
+        url = (opts.get("base_url") or OPENAI_URL).rstrip("/") + "/chat/completions"
+        key = os.environ.get(_openai_key_env(opts))
+        headers = {"authorization": f"Bearer {key}"} if key else {}
+        model, timeout = _model_name(opts), float(opts["timeout"])
+        body = {"model": model, "messages": [{"role": "user", "content": prompt}],
+                "response_format": {"type": "json_schema",
+                                    "json_schema": {"name": "result", "schema": schema}}}
+        try:
+            data = _post_json(url, body, headers, timeout, "chat completions")
+        except DistillError as e:
+            if not str(e).endswith("error 400"):
+                raise
+            hint = "\n\nReply with only a JSON object that matches this JSON schema:\n" + json.dumps(schema)
+            body = {"model": model, "messages": [{"role": "user", "content": prompt + hint}],
+                    "response_format": {"type": "json_object"}}
+            data = _post_json(url, body, headers, timeout, "chat completions")
+        try:
+            content = data["choices"][0]["message"]["content"]
+        except (KeyError, IndexError, TypeError):
+            raise DistillError("chat completions returned no message")
+        return _json_text(content)
+    return call
+
+
+def ollama_provider(opts):
+    """Native Ollama POST {base_url}/api/chat, stream false, `format` = the JSON schema."""
+    def call(prompt, schema):
+        url = (opts.get("base_url") or OLLAMA_URL).rstrip("/") + "/api/chat"
+        body = {"model": _model_name(opts), "stream": False, "format": schema,
+                "messages": [{"role": "user", "content": prompt}]}
+        data = _post_json(url, body, {}, float(opts["timeout"]), "Ollama")
+        try:
+            content = data["message"]["content"]
+        except (KeyError, TypeError):
+            raise DistillError("Ollama returned no message")
+        return _json_text(content)
+    return call
+
+
 def get_provider(cfg):
     opts = options(cfg)
-    if opts["provider"] == "claude-cli":
+    name = opts["provider"]
+    if name == "claude-cli":
         return claude_cli_provider(opts, cfg["_state"])
-    if opts["provider"] == "anthropic-api":
+    if name == "anthropic-api":
         return anthropic_api_provider(opts)
-    raise DistillError(f"unknown distill provider {opts['provider']!r} (use claude-cli or anthropic-api)")
+    if name == "openai-compat":
+        return openai_compat_provider(opts)
+    if name == "ollama":
+        return ollama_provider(opts)
+    raise DistillError(f"unknown distill provider {name!r} (use {', '.join(PROVIDERS)})")
 
+
+def readiness(cfg):
+    """(provider, ok, detail): is the provider's prerequisite present? No network calls."""
+    opts = options(cfg)
+    name = opts["provider"]
+    if name == "claude-cli":
+        path = _claude(opts["command"])
+        ok = bool(shutil.which(path) or Path(path).is_file())
+        return name, ok, f"command `{opts['command']}` " + ("found" if ok else "not found")
+    if name == "anthropic-api":
+        ok = bool(os.environ.get("ANTHROPIC_API_KEY"))
+        return name, ok, "ANTHROPIC_API_KEY " + ("is set" if ok else "is not set")
+    if name == "openai-compat":
+        url, env = opts.get("base_url") or OPENAI_URL, _openai_key_env(opts)
+        has = bool(os.environ.get(env))
+        local = urllib.parse.urlsplit(url).hostname in ("localhost", "127.0.0.1", "::1")
+        note = "is set" if has else "is not set" + (" (optional for a local server)" if local else "")
+        return name, has or local, f"{url} · {env} {note}"
+    if name == "ollama":
+        return name, True, f"{opts.get('base_url') or OLLAMA_URL} (no key; server not contacted)"
+    return name, False, f"unknown provider (use {', '.join(PROVIDERS)})"
 
 # ───────────────────────────────────────────────────────────── verification
 def normalize(text):

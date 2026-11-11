@@ -356,7 +356,9 @@ def doctor(args, cfg):
     properties = CT.property_issues(cfg)
     if args.json:
         print(json.dumps({"health": result["health"], "gaps": link_graph["gaps"], "freshness": report,
-                          "properties": properties}, ensure_ascii=False, indent=1))
+                          "properties": properties,
+                          "distill": dict(zip(("provider", "ready", "detail"), DS.readiness(cfg)))},
+                         ensure_ascii=False, indent=1))
         return
     health = result["health"]
     print(f"\n🧠 {cfg['_vault'].name}\n")
@@ -393,6 +395,9 @@ def doctor(args, cfg):
         for row in repeated[:8]:
             print(f"  ×{row['n']:<3} {row['class']:<28} last {row['last'] or '—'}")
     _freshness(report, cfg)
+    if DS.options(cfg)["enabled"]:
+        name, ok, detail = DS.readiness(cfg)
+        print(f"\ndistill provider: {name} · {'ready' if ok else 'NOT ready'} · {detail}")
     if properties:
         kinds = Counter(i["issue"] for i in properties)
         print(f"\nObsidian properties ({len(properties)}): " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
