@@ -35,6 +35,7 @@ ROOT = HERE.parent            # plugin root: standard/ lives next to scripts/
 
 import contract as CT  # noqa: E402
 import core as C  # noqa: E402
+import distill as DS  # noqa: E402
 import evaluate as EV  # noqa: E402
 import freshness as FR  # noqa: E402
 import indexer as IX  # noqa: E402
@@ -46,6 +47,7 @@ import patterns as PT  # noqa: E402
 import recall as RC  # noqa: E402
 import schedule as SC  # noqa: E402
 import telemetry as TL  # noqa: E402
+import today as TD  # noqa: E402
 
 # ──────────────────────────────────────────────────────────────────── init
 LAYOUT = ["00 Index", "10 Log/Daily", "10 Log/Periods",
@@ -634,8 +636,37 @@ def cmd_eval(args, cfg):
     EV.run(cfg, args.tsv, args.minimum, hook=args.hook)
 
 
+def _print_distill(result):
+    reasons = ", ".join(f"{k} {v}" for k, v in sorted(result["discarded_reasons"].items()))
+    print(f"  distill {result['day']}  sessions {result['sessions']} · proposed {result['proposed']} · "
+          f"kept {result['kept']} · updated {result['updated']} · replaced {result['replaced']} · "
+          f"discarded {result['discarded']}" + (f" ({reasons})" if reasons else "")
+          + f" · confirmed {result['confirmed']}" + (f" · errors {result['errors']}" if result["errors"] else ""))
+
+
+def cmd_distill(args, cfg):
+    """Learn from yesterday's agent sessions (config `distill`)."""
+    if not DS.options(cfg)["enabled"]:
+        print("  distill is off: set `distill.enabled` in config.json")
+        return
+    try:
+        result = DS.run(cfg, day=args.day, dry_run=args.dry_run)
+    except DS.DistillError as e:
+        sys.exit(f"  distill: {e}")
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+    else:
+        _print_distill(result)
+
+
 def cmd_refresh(args, cfg):
     started, mods = dt.datetime.now(), C.modules(cfg)
+    if DS.options(cfg)["enabled"] and not args.no_distill:
+        # before indexing, so what it learned enters the index in this same run
+        try:
+            _print_distill(DS.run(cfg))
+        except DS.DistillError as e:
+            print(f"  distill: {e}")
     docs, link_graph, coverage = IX.build(cfg)
     result = PT.build(cfg, docs, link_graph, coverage)
     if mods["patterns"]:
@@ -656,6 +687,17 @@ def cmd_refresh(args, cfg):
         print(f"  (off: {', '.join(off)})")
     print(f"\n  done in {(dt.datetime.now() - started).total_seconds():.1f}s"
           + (f"  ·  {target}" if target else ""))
+
+
+def cmd_today(args, cfg):
+    """The daily summary: next, waiting, due soon (config `today`)."""
+    if not TD.enabled(cfg):
+        print("  today is off: set `today.type` (and its fields) in config.json")
+        return
+    if args.json:
+        print(json.dumps(TD.collect(cfg), ensure_ascii=False, indent=1, default=str))
+        return
+    print(TD.render(cfg, all_items=args.all))
 
 
 # ───────────────────────────────────────────────────────────────── migrate
@@ -818,6 +860,7 @@ def main():
     p.set_defaults(fn=cmd_panel)
     p = sub.add_parser("refresh")
     p.add_argument("--note")
+    p.add_argument("--no-distill", dest="no_distill", action="store_true", help="skip learning from sessions")
     p.set_defaults(fn=cmd_refresh)
     p = sub.add_parser("info")
     p.set_defaults(fn=cmd_info)
@@ -855,6 +898,15 @@ def main():
     p.add_argument("--tokens", action="store_true", help="bytes/tokens vault-memory adds to the context (from transcripts)")
     p.add_argument("--transcripts", help="transcripts folder (default $CLAUDE_CONFIG_DIR/projects)")
     p.set_defaults(fn=cmd_usage)
+    p = sub.add_parser("distill", help="learn from yesterday's agent sessions (config `distill`)")
+    p.add_argument("--day", help="YYYY-MM-DD (default: yesterday)")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", help="call the model, write nothing")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_distill)
+    p = sub.add_parser("today", help="daily summary: what is next, waiting and due soon")
+    p.add_argument("--all", action="store_true", help="every open item, not only the top ones")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_today)
     p = sub.add_parser("mcp", help="MCP server over stdio (desktop chat, Codex, Cursor, Gemini, Copilot)")
     p.set_defaults(fn=cmd_mcp)
     p = sub.add_parser("eval")
