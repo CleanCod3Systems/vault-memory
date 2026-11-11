@@ -186,7 +186,7 @@ def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=
         keys["volatility"] = volatility
     head = N._set_keys(N.drop_keys(text[4:end], drop), keys)
     CT.backup(cfg, rel)
-    N._write_atomic(path, "---\n" + head + "\n---" + text[end + 4:])
+    N.replace_if_unchanged(path, text, "---\n" + head + "\n---" + text[end + 4:])
     IX.build(cfg, quiet=True, incremental=True)
     TL.record(cfg["_vault"], {"ev": "review", "p": rel, "verdict": verdict,
                               **({"confidence": confidence} if verdict == "confirmed" else {})}, cfg)

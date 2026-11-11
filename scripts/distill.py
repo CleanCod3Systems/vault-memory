@@ -602,7 +602,10 @@ def renew_used(cfg, days=2):
                 or not fm.get("expires") or fm["expires"][:10] >= until:
             continue
         head = N._set_keys(text[4:end], {"expires": until})
-        N._write_atomic(path, "---\n" + head + "\n---" + text[end + 4:])
+        try:
+            N.replace_if_unchanged(path, text, "---\n" + head + "\n---" + text[end + 4:])
+        except N.NoteError:
+            continue                       # saved by the person meanwhile: renew it next run
         renewed += 1
     if renewed:
         IX.build(cfg, quiet=True, incremental=True)

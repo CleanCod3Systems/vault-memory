@@ -121,6 +121,20 @@ def _write_atomic(target, text):
     os.replace(tmp, target)
 
 
+def replace_if_unchanged(path, before, after):
+    """Write `after` only if the note still holds `before`. Obsidian autosaves while the person
+    types, so a note can change between our read and our write: then nothing is written
+    (exit 4) instead of silently dropping what they typed."""
+    try:
+        current = path.read_text(encoding="utf-8")
+    except OSError:
+        current = None
+    if current != before:
+        raise NoteError(4, f"{path.name} changed while it was being updated (Obsidian or another "
+                           "process saved it): nothing written, run it again")
+    _write_atomic(path, after)
+
+
 def _resolve_replaced(idx, name):
     name_to_paths = defaultdict(list)
     for d in idx["docs"]:
@@ -235,6 +249,6 @@ def _update(cfg, idx, rel, body, append, area, tags, replaces, keys, dry_run):
     if dry_run:
         return {"p": rel, "mode": "update", "dry_run": True, "text": new_text}
     target = CT.backup(cfg, rel)
-    _write_atomic(path, new_text)
+    replace_if_unchanged(path, text, new_text)
     IX.build(cfg, quiet=True, incremental=True)
     return {"p": rel, "mode": "update", "backup": str(target.relative_to(cfg["_vault"]))}
