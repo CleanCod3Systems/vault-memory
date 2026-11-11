@@ -1,5 +1,5 @@
 {
-  "description": "vault-memory: automatic vault recall, a gate before external searches, read tracking, context after compaction and a memory prompt at the end of the session",
+  "description": "vault-memory: automatic vault recall, a gate before external searches, a daily summary at the first session of the day, read tracking, context after compaction and a memory prompt at the end of the session",
   "hooks": {
     "UserPromptSubmit": [
       {"hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/recall.py"], "timeout": 10}]}
@@ -11,6 +11,7 @@
       {"matcher": "Read", "hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/read.py"], "timeout": 5}]}
     ],
     "SessionStart": [
+      {"matcher": "startup", "hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/today.py"], "timeout": 5}]},
       {"matcher": "compact", "hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/compact.py"], "timeout": 5}]}
     ],
     "Stop": [
