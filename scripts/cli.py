@@ -638,10 +638,13 @@ def cmd_eval(args, cfg):
 
 def _print_distill(result):
     reasons = ", ".join(f"{k} {v}" for k, v in sorted(result["discarded_reasons"].items()))
-    print(f"  distill {result['day']}  sessions {result['sessions']} · proposed {result['proposed']} · "
+    days = ", ".join(result["days"]) or "nothing new"
+    print(f"  distill {days}  sessions {result['sessions']} · proposed {result['proposed']} · "
           f"kept {result['kept']} · updated {result['updated']} · replaced {result['replaced']} · "
           f"discarded {result['discarded']}" + (f" ({reasons})" if reasons else "")
-          + f" · confirmed {result['confirmed']}" + (f" · errors {result['errors']}" if result["errors"] else ""))
+          + f" · confirmed {result['confirmed']} · archived {result['archived']}"
+          + (f" · errors {result['errors']}" if result["errors"] else "")
+          + (f" · already done: {', '.join(result['skipped'])}" if result["skipped"] else ""))
 
 
 def cmd_distill(args, cfg):
@@ -650,7 +653,7 @@ def cmd_distill(args, cfg):
         print("  distill is off: set `distill.enabled` in config.json")
         return
     try:
-        result = DS.run(cfg, day=args.day, dry_run=args.dry_run)
+        result = DS.run(cfg, day=args.day, dry_run=args.dry_run, force=args.force)
     except DS.DistillError as e:
         sys.exit(f"  distill: {e}")
     if args.json:
@@ -899,7 +902,8 @@ def main():
     p.add_argument("--transcripts", help="transcripts folder (default $CLAUDE_CONFIG_DIR/projects)")
     p.set_defaults(fn=cmd_usage)
     p = sub.add_parser("distill", help="learn from yesterday's agent sessions (config `distill`)")
-    p.add_argument("--day", help="YYYY-MM-DD (default: yesterday)")
+    p.add_argument("--day", help="YYYY-MM-DD (default: yesterday plus any missed days)")
+    p.add_argument("--force", action="store_true", help="learn again from a day already processed")
     p.add_argument("--dry-run", dest="dry_run", action="store_true", help="call the model, write nothing")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_distill)

@@ -174,14 +174,17 @@ def candidate(**over):
 
 
 class FakeProvider:
-    def __init__(self, candidates=None, supported=True):
+    def __init__(self, candidates=None, supported=True, relation=None):
         self.candidates, self.supported, self.prompts, self.calls = candidates or [], supported, [], 0
+        self.relation = relation or {"match": 0, "relation": "different"}
 
     def __call__(self, prompt, schema):
         self.calls += 1
         self.prompts.append(prompt)
         if "supported" in schema["properties"]:
             return {"supported": self.supported}
+        if "relation" in schema["properties"]:
+            return self.relation
         return {"candidates": self.candidates}
 
 
@@ -350,6 +353,102 @@ class TestAutoApply(Pipeline):
         result = DS.run(self.cfg(auto=True), day=DAY, provider=FakeProvider([candidate()]), dry_run=True)
         self.assertEqual(result["kept"], 1)
         self.assertEqual(self.vault_tree(), before)
+
+
+class TestRelate(Pipeline):
+    """The model compares a new fact with the closest notes: a reworded duplicate is caught even
+    when note.write's text similarity would let it through."""
+    existing, read, auto = TestAutoApply.existing, TestAutoApply.read, TestAutoApply.auto
+
+    def auto_rel(self, cands, relation):
+        return DS.run(self.cfg(auto=True), day=DAY, provider=FakeProvider(cands, relation=relation))
+
+    def test_same_fact_in_other_words_is_already_known(self):
+        self.existing("Charges park after three failures", "After the third failed attempt the charge is parked.")
+        before = self.vault_tree()
+        result = self.auto_rel([candidate()], {"match": 1, "relation": "same"})
+        self.assertEqual((result["kept"], result["discarded_reasons"]), (0, {"already_known": 1}))
+        self.assertEqual(self.vault_tree(), before)
+
+    def test_adds_to_a_learned_note_appends(self):
+        self.existing("Charges park after three failures", "After the third failed attempt the charge is parked.")
+        result = self.auto_rel([candidate(body="Parked charges are retried by hand on Mondays.")],
+                               {"match": 1, "relation": "adds"})
+        self.assertEqual(result["updated"], 1)
+        self.assertIn("retried by hand on Mondays", self.read("Memory/learned/Charges park after three failures.md"))
+
+    def test_contradicting_a_learned_note_replaces_it(self):
+        self.existing("Charges park after three failures", "After the third failed attempt the charge is parked.")
+        result = self.auto_rel([candidate(body="Charges are parked after 5 retries since 2026-11-09.")],
+                               {"match": 1, "relation": "contradicts"})
+        self.assertEqual(result["replaced"], 1)
+        text = self.read("Memory/learned/Failed charges are parked after 3 retries.md")
+        self.assertIn('replaces: "[[Charges park after three failures]]"', text)
+
+    def test_a_note_the_person_wrote_is_never_edited_or_replaced(self):
+        import note as N
+        N.write(self.cfg(), title="Billing retry runbook", note_type="doc", folder="Docs",
+                body="After the third failed attempt the charge is parked.", verified="today")
+        human = self.read("Docs/Billing retry runbook.md")
+        result = self.auto_rel([candidate(body="Charges are parked after 5 retries since 2026-11-09.")],
+                               {"match": 1, "relation": "contradicts"})
+        self.assertEqual(result["kept"], 1)
+        self.assertEqual(self.read("Docs/Billing retry runbook.md"), human)
+        text = self.read("Memory/learned/Failed charges are parked after 3 retries.md")
+        self.assertIn("Contradicts [[Billing retry runbook]]", text)
+        self.assertNotIn("replaces:", text)
+
+    def test_unknown_answer_falls_back_to_plain_checks(self):
+        result = self.auto_rel([candidate()], {"match": 9, "relation": "same"})
+        self.assertEqual(result["kept"], 1)
+
+
+class TestDays(Pipeline):
+    def test_a_processed_day_is_not_learned_twice(self):
+        first = DS.run(self.cfg(), day=DAY, provider=FakeProvider([candidate()]))
+        provider = FakeProvider([candidate()])
+        second = DS.run(self.cfg(), day=DAY, provider=provider)
+        self.assertEqual((first["days"], second["days"], second["skipped"], provider.calls),
+                         ([DAY], [], [DAY], 0))
+        forced = DS.run(self.cfg(), day=DAY, provider=FakeProvider([candidate()]), force=True)
+        self.assertEqual(forced["days"], [DAY])
+
+    def test_first_run_only_learns_from_yesterday(self):
+        self.assertEqual(DS.pending_days(self.cfg()), ["2026-11-09"])
+
+    def test_missed_days_are_caught_up_without_repeating(self):
+        import telemetry as TL
+        TL.record(self.vault, {"ev": "distill", "day": "2026-11-06"}, self.cfg())
+        self.assertEqual(DS.pending_days(self.cfg()), ["2026-11-07", "2026-11-08", "2026-11-09"])
+
+    def test_catch_up_is_capped(self):
+        import telemetry as TL
+        TL.record(self.vault, {"ev": "distill", "day": "2026-10-01"}, self.cfg())
+        days = DS.pending_days(self.cfg())
+        self.assertEqual((len(days), days[0], days[-1]), (7, "2026-11-03", "2026-11-09"))
+
+    def test_the_prompt_asks_for_absolute_dates(self):
+        provider = FakeProvider([])
+        DS.run(self.cfg(), day=DAY, provider=provider)
+        self.assertIn("The session happened on 2026-11-09", provider.prompts[0])
+        self.assertIn("absolute dates", provider.prompts[0])
+
+
+class TestArchive(Env):
+    def learned(self, name, fm):
+        folder = self.vault / "Memory" / "learned"
+        folder.mkdir(parents=True, exist_ok=True)
+        (folder / name).write_text("---\ntype: doc\n" + fm + "\n---\n\n# x\n\nbody\n", encoding="utf-8")
+
+    def test_expired_unread_learned_notes_move_to_the_archive(self):
+        self.learned("Old.md", "source: distill 2026-08-01 aaaa1111\nexpires: 2026-11-01")
+        self.learned("Fresh.md", "source: distill 2026-11-01 aaaa1111\nexpires: 2027-01-30")
+        self.learned("Confirmed.md", "source: distill 2026-08-01 aaaa1111\nverified: 2026-09-01")
+        self.learned("Mine.md", "source: meeting\nexpires: 2026-11-01")
+        self.assertEqual(DS.archive_expired(self.cfg()), 1)
+        self.assertTrue((self.vault / "_archive" / "Memory" / "learned" / "Old.md").exists())
+        left = sorted(p.name for p in (self.vault / "Memory" / "learned").glob("*.md"))
+        self.assertEqual(left, ["Confirmed.md", "Fresh.md", "Mine.md"])
 
 
 class FakeResponse:
