@@ -41,6 +41,36 @@ _Avoid_: credibility, certainty
 **Volatility**:
 How fast the fact in a note changes: live (a state that changes within weeks) or stable (how something works, a decision). Live notes are due for review sooner.
 
+**Calibration**:
+How often a review's confidence held up at the next review of the same note, measured from the review log.
+_Avoid_: accuracy, trust score
+
+**Learned-note precision**:
+Of the learned notes whose first audit settled, the share that was confirmed.
+_Avoid_: distill accuracy
+
+**Earned autonomy**:
+Learning writes notes on its own only while learned-note precision is proven high enough; otherwise they wait in the inbox.
+
+**Review budget**:
+How many notes a scheduled review checks today: a base, plus more while contradicted or never-audited learned notes wait.
+
+**Keys**:
+Other ways to name or ask for a note (aliases, its key, questions it answers) that recall matches as if they were its title.
+_Avoid_: synonyms, tags
+
+**Source**:
+Where learning reads sessions from: an agent's transcripts, pull requests, or material an agent collected.
+_Avoid_: connector, integration
+
+**Adapter**:
+The reader that turns one source's files into the sessions of a day.
+_Avoid_: plugin, driver
+
+**Ingest**:
+Handing vault-memory material an agent collected elsewhere (a thread, an issue), so it is learned from like a session.
+_Avoid_: import, sync
+
 **Bench case**:
 A question from the user's own history paired with the note that was actually read to answer it, or a case written by hand. Recall is measured and tuned only against these.
 _Avoid_: test query, ground truth

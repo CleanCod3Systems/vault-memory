@@ -42,6 +42,9 @@ vault-memory info                               # vault, version, code and langu
 The shim looks up the installed plugin copy on every call (`VAULT_MEMORY_HOME`, then the active
 Claude Code profile), so plugin updates need no reinstall.
 
+On Windows, `install-cli` writes `%LOCALAPPDATA%\vault-memory\bin\vault-memory.cmd` and prints
+how to add that folder to your user PATH (it does not change PATH itself).
+
 ## 4. New or existing vault
 
 - New: `vault-memory init --vault "/path" --wizard` (or ask the agent to "set up vault memory",
@@ -49,7 +52,12 @@ Claude Code profile), so plugin updates need no reinstall.
 - Existing: `vault-memory doctor` → `vault-memory fix --apply` → `vault-memory refresh`.
 - Made by obsidian-cerebro: it works as is; `vault-memory migrate` (dry run) → `--apply`
   rewrites the Spanish names and moves `.cerebro/` to `.vault-memory/`.
-- Optional: `vault-memory schedule --at 07:30 --install` (daily refresh).
+- Optional: `vault-memory schedule --at 07:30 [--days daily|weekdays|weekend] --install`
+  (daily refresh); `--status` and `--off` work everywhere.
+  - macOS: a launchd agent (`~/Library/LaunchAgents`).
+  - Linux: a systemd user timer (`~/.config/systemd/user`, `Persistent=true`: a run missed while
+    the machine was off happens when it is back); crontab when `systemctl --user` is not there.
+  - Windows: a Task Scheduler task `vault-memory <vault>` (a missed run is skipped).
 - Suggested: an `eval.tsv` in the state folder with 15–30 real questions
   (`query<TAB>expected path`) to measure recall with `vault-memory eval` before and after
   changing the config.

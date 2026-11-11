@@ -77,6 +77,27 @@ verdict has to be `unsure`. Confirming sets `verified` and drops `review` (and `
 learned note). Only frontmatter is written, with a backup in the state folder. Reading a note
 never verifies it.
 
+### Does confidence hold up?
+
+Each recorded check also appends a line to `<state>/reviews.jsonl`: date, path, verdict,
+confidence, volatility, whether the note was learned and the note's previous check (no note
+text, no evidence). `vault-memory review --calibration` reads it: for checks made at confidence
+10, 9, 8 and ≤7 (an `unsure` with its confidence), how many were confirmed at the next review
+on a later day (held) and how many were found outdated (failed); an `unsure` next time settles
+nothing and is counted apart. Each rate comes with a Wilson 95% interval; below
+`review.calibration_min` (10) rechecks it says "too few" instead of a number. Model confidence
+tends to run high (arXiv 2306.13063): this is how you find out by how much.
+
+**Earned autonomy.** With `distill.auto: "earned"`, learned notes are written directly only
+while the precision of learned notes (confirmed at their first settled audit) has a Wilson
+lower bound ≥ `distill.earned_min_precision` (0.8) over at least `distill.earned_min_audits`
+(20) audits; otherwise they go to the inbox. `distill` and `ingest` say which path they took
+and why.
+
+**Daily budget.** `review --budget [MAX]` cuts the queue to `review.daily.base` (4) plus one per
+contradicted or never-audited learned note, up to `review.daily.max` (8), never more than are
+due; `budget.n` is in the JSON for a scheduled run.
+
 To see all of this inside Obsidian, `vault-memory bases Memory --install` adds `Memory.base`: views of
 the notes never verified, the ones checked at the source with their confidence, the live facts
 and the ones a review found outdated or unsure.
