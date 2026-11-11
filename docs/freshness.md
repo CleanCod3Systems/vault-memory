@@ -11,6 +11,10 @@ note without them behaves as always.
 | `replaces` | `"[[Old note]]"` (or list) | this note makes that one obsolete |
 | `expires` | `YYYY-MM-DD` | from that date it no longer holds (temporary agreements) |
 | `key` | slug | the fact it talks about: one key, one current note |
+| `volatility` | `live` / `stable` | how fast it changes: a `live` note is due for review in weeks |
+
+A review against the source (below) adds `checked`, `evidence`, `confidence` and, when the
+source says otherwise, `review: outdated` (or `unsure` when it could not be settled).
 
 A `status` listed in the config's `statuses.obsolete` (`obsolete`, `replaced`, `deprecated`…)
 counts as expired.
@@ -18,17 +22,19 @@ counts as expired.
 ## State of each note
 
 `ok` · `replaced` (another note names it in `replaces`; recall returns `replaced_by`) ·
-`expired` (`expires` passed or an obsolete status) · `unverified` (of the `freshness.types`,
-not verified for more than `freshness.review_days`; the reference date is `verified`, else
-`date`, else the modification date).
+`expired` (`expires` passed or an obsolete status) · `outdated` (a review found the source
+says otherwise) · `unverified` (of the `freshness.types`, or with a `volatility`, not verified
+for longer than its limit; the reference date is `verified`, else `date`, else the
+modification date). The limit is `freshness.review_days_by_volatility` for its volatility
+(`live`: 21), else `review_days_by_type`, else `review_days`.
 
 What depends on the date is computed at query time, not at index time. `--today YYYY-MM-DD`
 (or `VAULT_MEMORY_TODAY`) pins the date to compare runs.
 
 ## Effect on recall
 
-The score is multiplied by `freshness.penalty[state]`: by default `replaced` 0.4, `expired` 0.5
-and `unverified` 1.0 (only reported: almost no old note has `verified`, and penalizing all of
+The score is multiplied by `freshness.penalty[state]`: by default `replaced` 0.4, `expired` 0.5,
+`outdated` 0.5 and `unverified` 1.0 (only reported: almost no old note has `verified`, and penalizing all of
 them would move the ranking without new information). An exact ID or ticket search is not
 penalized. `--include-expired` turns the penalty off.
 
@@ -44,6 +50,32 @@ penalized. `--include-expired` turns the penalty off.
 - How many notes have gone more than `review_days` without verification.
 
 `doctor --json` returns everything structured; `patterns.json` carries it under `freshness`.
+
+## Review against the source
+
+Age says when a note was last confirmed, not whether it is still true. `vault-memory review`
+returns the notes worth checking now, most urgent first, each with its reasons:
+
+1. contradicted: two current notes with the same `key`, or a learned note that says
+   `Contradicts [[X]]` (distill writes that instead of editing a note the person wrote);
+2. learned from sessions and never audited (no `confidence`);
+3. used: read, or suggested by the hook, in the last `review.usage_days` (30);
+4. past their review interval; `live` notes get a little extra weight.
+
+A note checked in the last `review.gap_days` (7) waits, whatever the verdict. Checking needs
+the real sources, so an agent does it with the `verify` skill and records the result:
+
+```bash
+vault-memory review "PATH" --verdict confirmed --confidence 9 --evidence "<source>: <what>" [--volatility live]
+vault-memory review "PATH" --verdict outdated --evidence "<source>: <what it says now>"
+vault-memory review "PATH" --verdict unsure --evidence "<what was missing>"
+```
+
+`confidence` measures primary evidence, not plausibility: 10 every claim checked at its source
+today, 9 the central claim, 8 one minor detail unseen; below `review.min_confirm` (8) the
+verdict has to be `unsure`. Confirming sets `verified` and drops `review` (and `expires` on a
+learned note). Only frontmatter is written, with a backup in the state folder. Reading a note
+never verifies it.
 
 ## How it gets written
 

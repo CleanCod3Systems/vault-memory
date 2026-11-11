@@ -24,11 +24,22 @@ A few lines, once a day, with what is next, what is waiting on someone and what 
 _Avoid_: digest, standup
 
 **Learned note**:
-A note written by the model from the user's sessions, not by the user. It carries its origin and an expiry date until someone reads it, which confirms it.
+A note written by the model from the user's sessions, not by the user. It carries its origin and an expiry date; reading it keeps it alive, and only a review confirms it.
 _Avoid_: auto note, memory candidate
 
 **Inbox**:
 Where learned notes wait for review when automatic learning is off. It lives outside the vault.
+
+**Review**:
+Checking a note against its primary source (the code, the ticket, the thread, the data) and recording the verdict with its evidence: confirmed, outdated or unsure. Reading a note or finding it in another note is not a review.
+_Avoid_: audit, validation
+
+**Confidence**:
+How much primary evidence a review found for a note, from 1 to 10. It measures evidence, not how plausible the note sounds; only 8 or more can confirm.
+_Avoid_: credibility, certainty
+
+**Volatility**:
+How fast the fact in a note changes: live (a state that changes within weeks) or stable (how something works, a decision). Live notes are due for review sooner.
 
 **Installation config**:
 The values one user's vault puts in `config.json` (tool names, domain words, thresholds). The product ships the mechanism with neutral defaults; everything specific to a person or company lives here.
