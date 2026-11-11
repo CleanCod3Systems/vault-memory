@@ -24,6 +24,11 @@ class TestGate(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.vault = self.tmp / "vault"
         shutil.copytree(EXAMPLE, self.vault)
+        # the gate reads the index and never builds it; a fresh checkout has none (it is ignored)
+        built = subprocess.run([sys.executable, "-B", str(REPO / "scripts" / "cli.py"), "--vault",
+                                str(self.vault), "index"], capture_output=True, text=True,
+                               env={**os.environ, "CLAUDE_CONFIG_DIR": str(self.tmp / "profile")})
+        self.assertEqual(built.returncode, 0, built.stderr)
 
     def tearDown(self):
         shutil.rmtree(self.tmp)

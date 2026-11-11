@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 from argparse import Namespace
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from unittest import mock
 
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
@@ -37,11 +37,13 @@ class TestSystemdUnits(unittest.TestCase):
         self.assertIn("[Install]\nWantedBy=timers.target\n", text)
 
     def test_service_quotes_every_word(self):
-        text = SC.systemd_service(VAULT, ENTRY, "/home/a b/.claude", Path("log dir") / "schedule.log")
+        # systemd units only exist on Linux: POSIX paths whatever OS runs the test
+        vault, log = PurePosixPath("Some Place/My Vault"), PurePosixPath("log dir/schedule.log")
+        text = SC.systemd_service(vault, ENTRY, "/home/a b/.claude", log)
         self.assertIn("Type=oneshot\n", text)
-        self.assertIn(f'ExecStart="py thon" "cli.py" "--vault" "{VAULT}" "refresh"\n', text)
+        self.assertIn(f'ExecStart="py thon" "cli.py" "--vault" "{vault}" "refresh"\n', text)
         self.assertIn('Environment="CLAUDE_CONFIG_DIR=/home/a b/.claude"\n', text)
-        self.assertIn(f"StandardOutput=append:{Path('log dir') / 'schedule.log'}\n", text)
+        self.assertIn(f"StandardOutput=append:{log}\n", text)
 
     def test_quote_escapes_systemd_specials(self):
         self.assertEqual(SC._sd_quote('a"b'), '"a\\"b"')

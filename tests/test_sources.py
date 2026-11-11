@@ -62,6 +62,7 @@ class SourcesEnv(Env):
         self.home = self.tmp / "home"
         self.home.mkdir()
         os.environ["HOME"] = str(self.home)
+        os.environ["USERPROFILE"] = str(self.home)      # Path.home() on Windows reads this one
         os.environ.pop("CODEX_HOME", None)
 
     def write_jsonl(self, path, records):
