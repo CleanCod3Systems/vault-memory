@@ -12,6 +12,7 @@ write goes through `vault-memory note`, `fix` or `migrate` after an explicit OK.
 ```bash
 vault-memory doctor --json
 vault-memory usage --json          # pointers used, never read, missed recall, gaps
+vault-memory bench --json          # recall on the user's own history: MRR with its interval, misses
 vault-memory patterns              # recurrence and stale records (refreshes derived files only)
 ```
 
@@ -23,7 +24,7 @@ vault-memory patterns              # recurrence and stale records (refreshes der
 3. **Out-of-vocabulary types** → add them to `config.json → extra_types` or fix the notes.
 4. **Hook noise** → notes suggested and never read (`usage.never_read`): propose
    `recall.skip_paths` for whole folders that are noise, or a better title for the note.
-   Missed recall (`usage.missed_recall`): propose those queries as new `eval.tsv` cases.
+   Missed recall (`usage.missed_recall`, `bench.misses`): propose those queries as new `eval.tsv` cases.
 5. **Gaps** (searches without results) → propose the note to write, with its type and folder.
 
 Each item: what, why (the data that shows it), the exact command, and the effort. End with the

@@ -39,6 +39,7 @@ language**; search works over notes written in English or Spanish (others: `stem
 | **Patterns** | What repeats, what repeats **without a written solution**, what has been open too long |
 | **Panel** | A self-contained HTML page that searches the whole vault in the browser, no backend |
 | **Review against the source** | `vault-memory review` lists the notes worth checking now: contradicted ones, learned ones never audited, the ones you use, the ones past their interval (`volatility: live` notes age in weeks). The `verify` skill checks each one at its primary source (code, ticket, thread, a read-only query), tries to refute it, and records the verdict: `confirmed` with a 1-10 confidence (8+ only with primary evidence), `outdated` (recall ranks it lower and the hook stops suggesting it) or `unsure`. Only frontmatter is written, with a backup. Recall and the hook show `verified 2026-11, 9/10` so answers say how sure they are |
+| **Measured on your own use** | `vault-memory bench` builds test cases from your history (a question, then the note that was read right after it, by the Read tool, a shell command or the MCP) plus the cases you write in `eval.tsv`, and reports hit@1, hit@3 and MRR with a 95% interval. `--tune` tries BM25 `k1`/`b`, the title bonus and a small lift for notes that were useful before; it picks on half the cases and checks on the other half, and `--apply` writes a change only when that held-out gain is clearly above zero with 30+ cases. `refresh` keeps `bench.json` current and the Monday summary shows last week's numbers |
 | **Curation** | The `curate` skill turns doctor + usage data into a short weekly list of what to merge, close or stop suggesting |
 
 ## Install
@@ -103,6 +104,7 @@ vault-memory doctor            # health, read only
 vault-memory fix [--apply]     # fill missing frontmatter (dry run without --apply)
 vault-memory refresh           # index + patterns + related notes + panel
 vault-memory usage             # is memory helping? pointers used, missed recall, gaps
+vault-memory bench [--tune [--apply]]   # recall measured on your own history, tuned only with clear evidence
 vault-memory today [--all]     # what is next, waiting and due soon (config `today`)
 vault-memory distill [--day D] [--dry-run]   # learn from yesterday's sessions (config `distill`)
 vault-memory review [--n 20]   # notes to check against their source, most urgent first

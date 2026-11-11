@@ -41,6 +41,10 @@ _Avoid_: credibility, certainty
 **Volatility**:
 How fast the fact in a note changes: live (a state that changes within weeks) or stable (how something works, a decision). Live notes are due for review sooner.
 
+**Bench case**:
+A question from the user's own history paired with the note that was actually read to answer it, or a case written by hand. Recall is measured and tuned only against these.
+_Avoid_: test query, ground truth
+
 **Installation config**:
 The values one user's vault puts in `config.json` (tool names, domain words, thresholds). The product ships the mechanism with neutral defaults; everything specific to a person or company lives here.
 _Avoid_: user settings, profile
