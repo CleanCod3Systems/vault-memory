@@ -45,11 +45,14 @@ def query_for(tools, name, tool_input):
     if not keys:
         return ""
     field = tools[max(keys, key=len)]
-    if field == "*":
-        parts = [v for v in tool_input.values() if isinstance(v, str)]
-    else:
-        value = tool_input.get(field)
-        parts = [value] if isinstance(value, str) else []
+
+    def strings(value):
+        # Some search tools take a list of keywords instead of one text.
+        if isinstance(value, str):
+            return [value]
+        return [v for v in value if isinstance(v, str)] if isinstance(value, list) else []
+    values = tool_input.values() if field == "*" else [tool_input.get(field)]
+    parts = [text for value in values for text in strings(value)]
     return " ".join(" ".join(parts).split())
 
 
