@@ -22,8 +22,12 @@ vault-memory recall "<kw>" --type incident|decision|runbook --n 5
 - Queries work in any language the notes are written in; use the words the notes would use.
 - Answer from the passage, **citing the path**. Read the whole note only if the passage is not
   enough (max 3 notes per question, max 4 recalls).
-- `state` of each result: `replaced` (see `replaced_by`) or `expired` → do not answer from it
-  without saying so.
+- `state` of each result: `replaced` (see `replaced_by`), `expired` or `outdated` (a review
+  found the source says otherwise) → do not answer from it without saying so.
+- **Say how sure the answer is**, from the note's own fields: "verified 2026-11-10, 9/10"
+  (`verified`, `confidence`), or "not verified since <date>" when it has neither. When the
+  answer matters and the note is not verified, offer to check it at the source (skill
+  `verify`).
 - No match → say so ("it is not in the vault") and only then search elsewhere.
 
 ## Today and pending work
@@ -46,6 +50,8 @@ vault-memory note --title "…" --type doc --folder Memory --body "…" \
 - Exit **3** (`duplicates`): update the existing note (`--update PATH [--append]`) or replace it
   (`--replaces "Old note"`); `--force` only if they really are different things.
 - Exit **2**: a field is missing or a value is invalid; fill it in, never invent it.
-- Confirm a note is still true: `vault-memory note --update PATH --verified today`.
+- Confirm a note is still true after checking its source:
+  `vault-memory review PATH --verdict confirmed --confidence 9 --evidence "<source>: <what>"`
+  (skill `verify`). Reading a note is not confirming it.
 
 Filters, `--like`, `--json`, limits and edge cases: [reference.md](reference.md).

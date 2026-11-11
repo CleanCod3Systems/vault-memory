@@ -68,8 +68,9 @@ docs already record, temporary state of one conversation, credentials or persona
   new one with `--replaces "Old note name"`. `--force` only if they really are different.
 - **Exit 2** → a required field is missing or a value is invalid: the message says which. Do
   not invent values to make it pass.
-- `--verified today` on an existing note (`--update PATH --verified today`) confirms it is still
-  true without touching anything else.
+- `--verified today` on an existing note (`--update PATH --verified today`) records that the user
+  just stated it is still true. A check against the source goes through `vault-memory review`
+  (skill `verify`), which also records the evidence and the confidence.
 - `key` = the fact the note talks about (slug). Two current notes with the same key are a
   contradiction that `doctor` reports.
 
