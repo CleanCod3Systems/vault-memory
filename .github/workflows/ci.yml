@@ -11,8 +11,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.13"]
         # 3.9 is the real floor: launchd (Xcode) and /usr/bin/python3 on macOS use it.
-        python: ["3.9", "3.13"]
+        # setup-python has no 3.9 for Ubuntu 26.04 (ubuntu-latest since 2026-10-19).
+        include:
+          - {os: ubuntu-24.04, python: "3.9"}
+          - {os: windows-latest, python: "3.9"}
     env:
       # Windows would otherwise use the ANSI code page for pipes and files: the CLI prints
       # `●` and the vaults are UTF-8.
