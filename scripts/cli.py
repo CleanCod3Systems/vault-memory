@@ -15,6 +15,8 @@
   vault-memory migrate [--apply]                  rewrite a legacy (Spanish) vault to the current names
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
   vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
+  vault-memory bases [--install] [--folder F]     standard Obsidian views (.base) missing in the vault
+  vault-memory links [--n 20]                     notes that talk about the same thing and are not linked
   vault-memory install-cli                        put `vault-memory` on the PATH
 
 No network, no model, no tokens. Python 3.9+, no dependencies.
@@ -43,6 +45,7 @@ import evaluate as EV  # noqa: E402
 import freshness as FR  # noqa: E402
 import indexer as IX  # noqa: E402
 import legacy as LG  # noqa: E402
+import links as LK  # noqa: E402
 import mcp_server as MCP  # noqa: E402
 import note as NT  # noqa: E402
 import panel as PN  # noqa: E402
@@ -60,7 +63,7 @@ LAYOUT = ["00 Index", "10 Log/Daily", "10 Log/Periods",
           "_attachments", "_archive"]
 TEMPLATES_FOLDERS = ("90 Templates", "Templates", "Plantillas")
 STANDARD_TEMPLATES = {"Incident.md", "Runbook.md", "Meeting.md", "Decision.md", "Project.md"}
-STANDARD_BASES = {"Map.base", "Timeline.base", "Records.base", "Runbooks.base"}
+STANDARD_BASES = {"Map.base", "Timeline.base", "Records.base", "Runbooks.base", "Memory.base"}
 
 # Hints to guess the type of existing folders. Compared by WHOLE word, not substring: "sop"
 # inside "Support" would type a folder of cases as runbook. Order matters: the first hit wins.
@@ -350,9 +353,10 @@ def doctor(args, cfg):
     docs, link_graph, coverage = IX.build(cfg, quiet=True, write=False)
     result = PT.build(cfg, docs, link_graph, coverage, write=False)
     report = FR.analyze({"docs": docs}, cfg)
+    properties = CT.property_issues(cfg)
     if args.json:
-        print(json.dumps({"health": result["health"], "gaps": link_graph["gaps"], "freshness": report},
-                         ensure_ascii=False, indent=1))
+        print(json.dumps({"health": result["health"], "gaps": link_graph["gaps"], "freshness": report,
+                          "properties": properties}, ensure_ascii=False, indent=1))
         return
     health = result["health"]
     print(f"\n🧠 {cfg['_vault'].name}\n")
@@ -389,6 +393,11 @@ def doctor(args, cfg):
         for row in repeated[:8]:
             print(f"  ×{row['n']:<3} {row['class']:<28} last {row['last'] or '—'}")
     _freshness(report, cfg)
+    if properties:
+        kinds = Counter(i["issue"] for i in properties)
+        print(f"\nObsidian properties ({len(properties)}): " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
+        for item in properties[:5]:
+            print(f"  {item['issue']:<32} {item['key']:<14} {item['p']}")
 
 
 def _freshness(report, cfg):
@@ -775,6 +784,51 @@ def cmd_bench(args, cfg):
             print(f"  applied to {result['applied']}")
 
 
+def cmd_bases(args, cfg):
+    """Standard .base views: which ones the vault lacks; --install copies them (never overwrites)."""
+    vault = cfg["_vault"]
+    present = {p.name for p in vault.rglob("*.base") if ".obsidian" not in p.parts and "_skill" not in p.parts}
+    source = ROOT / "standard" / "bases"
+    missing = [p for p in sorted(source.glob("*.base")) if p.name not in present]
+    if args.names:
+        wanted = {n if n.endswith(".base") else n + ".base" for n in args.names}
+        missing = [p for p in missing if p.name in wanted]
+    if args.folder:
+        target = vault / args.folder.strip("/")
+    else:
+        target = vault / "00 Index" if (vault / "00 Index").is_dir() else vault
+    if not missing:
+        print("  every standard view is already in the vault")
+        return
+    for path in missing:
+        first = path.read_text(encoding="utf-8").splitlines()[0].lstrip("# ")
+        print(f"  {'+' if args.install else '-'} {path.name:<15} {first}")
+    if not args.install:
+        print(f"\n  To add them:  vault-memory bases [NAME…] --install [--folder F]   (target: {target.relative_to(vault) or '.'})\n"
+              "  A view you already have under another name (a translated copy) does not need it again.")
+        return
+    if target.resolve() != vault.resolve() and vault.resolve() not in target.resolve().parents:
+        sys.exit("vault-memory bases: --folder must be inside the vault")
+    target.mkdir(parents=True, exist_ok=True)
+    for path in missing:
+        shutil.copy2(path, target / path.name)
+    print(f"\n  installed {len(missing)} in {target.relative_to(vault) or '.'}: open them in Obsidian")
+
+
+def cmd_links(args, cfg):
+    """Read only: pairs of notes that talk about the same thing and neither links to the other."""
+    pairs = LK.suggest(cfg, args.n)
+    if args.json:
+        print(json.dumps(pairs, ensure_ascii=False, indent=1))
+        return
+    if not pairs:
+        print("  no missing links among similar notes")
+        return
+    for pair in pairs:
+        print(f"  {pair['score']:5.1f}  [[{pair['a_n']}]]  ↔  [[{pair['b_n']}]]")
+    print("\n  Add the link where it helps the reader; nothing was changed.")
+
+
 def cmd_today(args, cfg):
     """The daily summary: next, waiting, due soon (config `today`)."""
     if not TD.enabled(cfg):
@@ -994,6 +1048,15 @@ def main():
     p.add_argument("--all", action="store_true", help="every open item, not only the top ones")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_today)
+    p = sub.add_parser("bases", help="standard Obsidian views (.base) missing in the vault")
+    p.add_argument("names", nargs="*", help="only these views (e.g. Memory)")
+    p.add_argument("--install", action="store_true", help="copy the missing ones (never overwrites)")
+    p.add_argument("--folder", help="folder inside the vault (default: 00 Index or the root)")
+    p.set_defaults(fn=cmd_bases)
+    p = sub.add_parser("links", help="similar notes that do not link to each other (read only)")
+    p.add_argument("--n", type=int, default=20)
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_links)
     p = sub.add_parser("bench", help="does recall find what gets used? measured on your own history")
     p.add_argument("--days", type=int, default=BN.DAYS, help="history window (default 120)")
     p.add_argument("--tune", action="store_true", help="try recall parameters against the cases")
