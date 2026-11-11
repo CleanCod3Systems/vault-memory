@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.6.0 — 2026-11-11
 
 - Safe writes next to Obsidian: `note --update`, `review` and distill's renewal re-read the
   note right before writing and stop with exit 4 (nothing written) if it changed since it was
