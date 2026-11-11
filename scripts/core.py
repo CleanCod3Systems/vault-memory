@@ -119,7 +119,11 @@ CONFIG_DEF = {
                   "review_days": 180, "near_duplicate": 0.85,
                   # How often each type is reviewed (a runbook ages faster than a decision).
                   "review_days_by_type": {"runbook": 120, "doc": 180, "decision": 365, "reference": 365},
-                  "penalty": {"replaced": 0.4, "expired": 0.5, "unverified": 1.0}},
+                  # A note marked `volatility: live` (a state: who waits on what, what is on)
+                  # ages in weeks whatever its type; `stable` keeps its type's limit.
+                  "review_days_by_volatility": {"live": 21},
+                  # `outdated`: a review found the source says otherwise (review.py).
+                  "penalty": {"replaced": 0.4, "expired": 0.5, "outdated": 0.5, "unverified": 1.0}},
 }
 
 # ───────────────────────────────────────────────────────────── locate the vault

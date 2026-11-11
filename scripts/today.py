@@ -143,7 +143,7 @@ def _item(item, width, extra=""):
 
 
 def _distill_line(event):
-    parts = [f"{event.get(k, 0)} {k}" for k in ("kept", "updated", "replaced", "confirmed")
+    parts = [f"{event.get(k, 0)} {k}" for k in ("kept", "updated", "replaced", "renewed")
              if event.get(k)]
     return f"distill {event.get('day', '')}: " + (", ".join(parts) if parts else "nothing new")
 

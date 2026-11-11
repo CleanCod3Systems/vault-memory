@@ -99,6 +99,20 @@ def _set_keys(head, keys):
     return "\n".join(lines)
 
 
+def drop_keys(head, keys):
+    """Remove those keys (and their indented or list lines) from the raw frontmatter."""
+    lines, out, skipping = head.split("\n"), [], False
+    for line in lines:
+        if keys and re.match(r"^(%s):" % "|".join(map(re.escape, keys)), line):
+            skipping = True
+            continue
+        if skipping and (line[:1] in (" ", "\t") or line.strip().startswith("- ")):
+            continue
+        skipping = False
+        out.append(line)
+    return "\n".join(out)
+
+
 def _write_atomic(target, text):
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".vault-memory-", suffix=".md")

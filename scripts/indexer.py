@@ -161,6 +161,9 @@ def scan(cfg, previous=None):
             # Freshness: all optional. `replaces` is resolved to paths in freshness.annotate().
             "verified": fm.get("verified", "").strip()[:10], "source": fm.get("source", "").strip()[:200],
             "expires": fm.get("expires", "").strip()[:10], "key": fm.get("key", "").strip(),
+            # Written by a review against the source (review.py): all optional.
+            "volatility": fm.get("volatility", "").strip(), "confidence": fm.get("confidence", "").strip()[:2],
+            "review": fm.get("review", "").strip(), "checked": fm.get("checked", "").strip()[:10],
             "replaces": [w.strip() for w in RE_WIKI.findall(replaces)]
                         or [x.strip() for x in replaces.split(",") if x.strip()],
         })

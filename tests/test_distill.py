@@ -1,4 +1,4 @@
-"""distill: redaction, transcript parsing, verification, apply modes, providers, confirm-by-use.
+"""distill: redaction, transcript parsing, verification, apply modes, providers, renew-by-use.
 Invented data only; the provider is always a fake callable (no model, no network)."""
 import datetime as dt
 import json
@@ -280,9 +280,9 @@ class TestVerification(Pipeline):
         lines = (self.vault / ".vault-memory" / "telemetry.jsonl").read_text(encoding="utf-8").splitlines()
         event = json.loads(lines[-1])
         self.assertEqual({k: event[k] for k in ("ev", "day", "sessions", "proposed", "kept", "updated",
-                                                "replaced", "discarded", "confirmed")},
+                                                "replaced", "discarded", "renewed")},
                          {"ev": "distill", "day": DAY, "sessions": 1, "proposed": 1, "kept": 1,
-                          "updated": 0, "replaced": 0, "discarded": 0, "confirmed": 0})
+                          "updated": 0, "replaced": 0, "discarded": 0, "renewed": 0})
 
     def test_disabled_does_nothing(self):
         cfg = self.cfg()
@@ -317,7 +317,12 @@ class TestAutoApply(Pipeline):
         self.assertIn("expires: 2027-02-07", text)        # session day 2026-11-09 + 90 days
         self.assertIn("key: billing-retry-policy", text)
         self.assertNotIn("verified:", text)
+        self.assertNotIn("volatility:", text)             # the model gave none: nothing invented
         self.assertEqual(self.inbox(), [])
+
+    def test_keeps_the_volatility_the_model_gave(self):
+        self.auto([candidate(volatility="live")])
+        self.assertIn("volatility: live", self.read("Memory/learned/Failed charges are parked after 3 retries.md"))
 
     def test_duplicate_content_updates_the_existing_note(self):
         self.existing("Failed charges parking rule", "Billing-api parks a charge after 3 failed retries.",
@@ -536,7 +541,7 @@ class TestProviders(Env):
             DS.run(self.cfg(), day=DAY)
 
 
-class TestConfirmUsed(Env):
+class TestRenewUsed(Env):
     def setUp(self):
         super().setUp()
         import note as N
@@ -555,30 +560,30 @@ class TestConfirmUsed(Env):
     def text(self, rel):
         return (self.vault / rel).read_text(encoding="utf-8")
 
-    def test_read_distilled_note_becomes_verified_and_loses_expires(self):
+    def test_read_distilled_note_stays_alive_but_is_not_verified(self):
         before = self.text(self.rel)
         self.read_event(self.rel)
-        self.assertEqual(DS.confirm_used(self.cfg()), 1)
+        self.assertEqual(DS.renew_used(self.cfg()), 1)
         after = self.text(self.rel)
-        self.assertIn("verified: 2026-11-10", after)
-        self.assertNotIn("expires:", after)
+        self.assertIn("expires: 2027-02-08", after)                              # today + 90 days
+        self.assertNotIn("verified:", after, "reading is not evidence: only a review verifies")
         self.assertIn("source: distill 2026-11-09 aaaa1111", after)
         self.assertEqual(after.split("---", 2)[2], before.split("---", 2)[2])    # body untouched
-        self.assertEqual(DS.confirm_used(self.cfg()), 0)                         # idempotent
+        self.assertEqual(DS.renew_used(self.cfg()), 0)                           # idempotent
 
     def test_ignores_unread_non_distill_and_outside_the_folder(self):
         self.read_event(self.human)
         self.read_event(self.outside)
         before = (self.text(self.rel), self.text(self.human), self.text(self.outside))
-        self.assertEqual(DS.confirm_used(self.cfg()), 0)
+        self.assertEqual(DS.renew_used(self.cfg()), 0)
         self.assertEqual((self.text(self.rel), self.text(self.human), self.text(self.outside)), before)
 
-    def test_run_reports_confirmed(self):
+    def test_run_reports_renewed(self):
         self.read_event(self.rel)
         result = DS.run(self.cfg(), day=DAY, provider=FakeProvider([]))
-        self.assertEqual(result["confirmed"], 1)
+        self.assertEqual(result["renewed"], 1)
         event = json.loads((self.vault / ".vault-memory" / "telemetry.jsonl").read_text().splitlines()[-1])
-        self.assertEqual((event["ev"], event["confirmed"]), ("distill", 1))
+        self.assertEqual((event["ev"], event["renewed"]), ("distill", 1))
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@
   vault-memory schedule [--at HH:MM] [--install]  automatic refresh at a fixed time
   vault-memory modules [--on X] [--off Y]         what is active; turn on and off
   vault-memory migrate [--apply]                  rewrite a legacy (Spanish) vault to the current names
+  vault-memory review [PATH --verdict V]          what to check against its source; record a check
   vault-memory install-cli                        put `vault-memory` on the PATH
 
 No network, no model, no tokens. Python 3.9+, no dependencies.
@@ -45,6 +46,7 @@ import note as NT  # noqa: E402
 import panel as PN  # noqa: E402
 import patterns as PT  # noqa: E402
 import recall as RC  # noqa: E402
+import review as RV  # noqa: E402
 import schedule as SC  # noqa: E402
 import telemetry as TL  # noqa: E402
 import today as TD  # noqa: E402
@@ -397,6 +399,8 @@ def _freshness(report, cfg):
         print(f"  ⚠ contradiction · key '{item['key']}': {' | '.join(item['notes'])}")
     for path in report["expired"][:8]:
         print(f"  ⌛ expired         {path}")
+    for path in report.get("outdated", [])[:8]:
+        print(f"  ✗ outdated        {path}   (a review found the source says otherwise)")
     for item in report["replaced"][:8]:
         print(f"  ↪ replaced        {item['p']}  →  {item['by']}")
     for item in report["near_duplicates"][:8]:
@@ -447,7 +451,8 @@ def cmd_recall(args, cfg):
         print(json.dumps([{"score": s, **{k: d[k] for k in
                           ("p", "n", "t", "type", "area", "date", "status", "sev", "system", "ids", "refs")},
                            "state": FR.state(d), "replaced_by": d.get("replaced_by", ""),
-                           "verified": d.get("verified", ""),
+                           "verified": d.get("verified", ""), "confidence": d.get("confidence", ""),
+                           "checked": d.get("checked", ""), "volatility": d.get("volatility", ""),
                            "passage": RC.passage(cfg, d, query_terms)} for s, d in results],
                          ensure_ascii=False, indent=1))
     else:
@@ -642,7 +647,7 @@ def _print_distill(result):
     print(f"  distill {days}  sessions {result['sessions']} · proposed {result['proposed']} · "
           f"kept {result['kept']} · updated {result['updated']} · replaced {result['replaced']} · "
           f"discarded {result['discarded']}" + (f" ({reasons})" if reasons else "")
-          + f" · confirmed {result['confirmed']} · archived {result['archived']}"
+          + f" · renewed {result['renewed']} · archived {result['archived']}"
           + (f" · errors {result['errors']}" if result["errors"] else "")
           + (f" · already done: {', '.join(result['skipped'])}" if result["skipped"] else ""))
 
@@ -690,6 +695,41 @@ def cmd_refresh(args, cfg):
         print(f"  (off: {', '.join(off)})")
     print(f"\n  done in {(dt.datetime.now() - started).total_seconds():.1f}s"
           + (f"  ·  {target}" if target else ""))
+
+
+def cmd_review(args, cfg):
+    """Without PATH: the queue of notes to check against their source. With PATH and
+    --verdict: record the check (frontmatter only, with a backup)."""
+    if args.path:
+        if not args.verdict:
+            sys.exit("vault-memory review: recording a check needs --verdict confirmed|outdated|unsure")
+        try:
+            result = RV.record(cfg, args.path, args.verdict, args.evidence, args.confidence, args.volatility)
+        except NT.NoteError as e:
+            if args.json:
+                print(json.dumps({"error": e.message}, ensure_ascii=False))
+            else:
+                print(f"vault-memory review: {e.message}", file=sys.stderr)
+            sys.exit(e.code)
+        if args.json:
+            print(json.dumps(result, ensure_ascii=False, indent=1))
+        else:
+            print(f"  {result['verdict']}  {result['p']}"
+                  + (f"  ({result['confidence']}/10)" if result.get("confidence") else ""))
+        return
+    result = RV.queue(cfg, args.n)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        return
+    cov = result["coverage"]
+    print(f"\n  reviewable notes {cov['notes']} · verified and current {cov['verified_current']} · "
+          f"outdated {cov['outdated']} · unsure {cov['unsure']} · due {cov['due']}\n")
+    if not result["queue"]:
+        print("  nothing due for review")
+        return
+    for i, row in enumerate(result["queue"], 1):
+        print(f"  {i:>2}. [{row['score']:>4}] {row['p']}")
+        print(f"      {'; '.join(row['reasons'])}")
 
 
 def cmd_today(args, cfg):
@@ -911,6 +951,15 @@ def main():
     p.add_argument("--all", action="store_true", help="every open item, not only the top ones")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_today)
+    p = sub.add_parser("review", help="notes to check against their source, and record a check")
+    p.add_argument("path", nargs="?", help="note to record a check for (relative to the vault)")
+    p.add_argument("--verdict", choices=RV.VERDICTS)
+    p.add_argument("--confidence", type=int, help="1-10: how much primary evidence backs it (confirmed needs 8+)")
+    p.add_argument("--evidence", help="what was checked and where (required when recording)")
+    p.add_argument("--volatility", choices=["live", "stable"], help="how fast the fact changes")
+    p.add_argument("--n", type=int, help="queue length (default `review.n`, 20)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_review)
     p = sub.add_parser("mcp", help="MCP server over stdio (desktop chat, Codex, Cursor, Gemini, Copilot)")
     p.set_defaults(fn=cmd_mcp)
     p = sub.add_parser("eval")

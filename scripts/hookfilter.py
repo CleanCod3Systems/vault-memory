@@ -112,9 +112,9 @@ def select(rows, prompt, cfg, memory_only=False, exclude=()):
         path = row.get("p", "")
         if "/" not in path or (skip and path.startswith(skip)) or row.get("type") in SKIP_TYPES:
             return False
-        # A replaced or expired note is never a good pointer: if that is the topic, the
-        # current one matches too.
-        if row.get("state") in ("replaced", "expired") or path in exclude:
+        # A replaced, expired or outdated note is never a good pointer: if that is the topic,
+        # the current one matches too.
+        if row.get("state") in ("replaced", "expired", "outdated") or path in exclude:
             return False
         if memory_only and hook["memory_prefix"] and not path.startswith(hook["memory_prefix"]):
             return False
@@ -157,5 +157,7 @@ def pointer(hits, fmt="compact"):
         meta = row.get("type", "")
         if row.get("verified"):
             meta += f", verified {row['verified'][:7]}"
+            if row.get("confidence"):
+                meta += f" {row['confidence']}/10"
         parts.append(f"{row['p']} ({meta})")
     return "[vault] " + " · ".join(parts) + " — if relevant, read only what you need."

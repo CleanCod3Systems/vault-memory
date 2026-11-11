@@ -3,8 +3,8 @@
 Pipeline: read the transcripts of one local day → redact → ask a provider for up to N
 cross-project facts with a verbatim quote → verify (quote is really in the session, a second
 call says "supported", no sensitive data in the result) → write to the inbox (auto: false) or
-through `note.write` with an expiry (auto: true). Notes that get read afterwards are
-confirmed (`confirm_used`): `verified` is set and `expires` dropped.
+through `note.write` with an expiry (auto: true). Notes that get read afterwards stay alive
+(`renew_used` moves `expires`); only a review against the source verifies them (review.py).
 
 The provider is an injected callable `provider(prompt, schema) -> dict`; nothing in here
 talks to a model unless `get_provider` is used. Redaction never leaves the machine's text
@@ -207,10 +207,12 @@ CANDIDATE_SCHEMA = {
     "properties": {"candidates": {"type": "array", "items": {
         "type": "object",
         "properties": {"title": {"type": "string"}, "type": {"type": "string", "enum": ["doc", "decision"]},
-                       "key": {"type": "string"}, "body": {"type": "string"}, "evidence": {"type": "string"}},
-        "required": ["title", "type", "key", "body", "evidence"]}}},
+                       "key": {"type": "string"}, "body": {"type": "string"}, "evidence": {"type": "string"},
+                       "volatility": {"type": "string", "enum": ["live", "stable"]}},
+        "required": ["title", "type", "key", "body", "evidence", "volatility"]}}},
     "required": ["candidates"],
 }
+VOLATILITY = ("live", "stable")
 RELATE_SCHEMA = {"type": "object", "properties": {
     "match": {"type": "integer"},
     "relation": {"type": "string", "enum": ["same", "adds", "contradicts", "different"]}},
@@ -227,8 +229,11 @@ def propose_prompt(session_text, limit, day=""):
         "Never keep repo-specific details, credentials, secrets or personal data. If nothing "
         "qualifies, return an empty list.\n"
         "For each fact return: title (short, specific), type (doc or decision), key (a lowercase "
-        "slug naming the fact), body (2-5 sentences, self-contained) and evidence (a VERBATIM quote "
-        f"from the session, at most {EVIDENCE_MAX} characters, copied exactly).\n"
+        "slug naming the fact), body (2-5 sentences, self-contained), evidence (a VERBATIM quote "
+        f"from the session, at most {EVIDENCE_MAX} characters, copied exactly) and volatility: "
+        "live when it is a state that changes within weeks (who is waiting on what, what is "
+        "enabled now, a date, a status), stable when it holds for months (how something works, "
+        "a decision, a contract).\n"
         "Write title and body in the language the person uses in the session.\n"
         + (f"The session happened on {day}. " if day else "")
         + "Write absolute dates (YYYY-MM-DD), never relative ones like 'next week' or 'in two days'.\n"
@@ -372,7 +377,8 @@ def write_inbox(cfg, cand, session, day, index, dry_run):
         return "already_in_inbox"
     if not dry_run:
         text = ("---\n" + f"type: {cand['type']}\nkey: {_slug(cand.get('key') or '')}\n"
-                f"source: distill {day} {session['sid'][:8]}\nsession: {session['sid']}\n---\n\n"
+                + (f"volatility: {cand['volatility']}\n" if cand.get("volatility") in VOLATILITY else "")
+                + f"source: distill {day} {session['sid'][:8]}\nsession: {session['sid']}\n---\n\n"
                 f"# {cand['title']}\n\n{cand['body'].strip()}\n\n## Evidence\n\n> {cand['evidence'].strip()}\n")
         N._write_atomic(path, text)
     return "kept"
@@ -411,7 +417,8 @@ def write_auto(cfg, opts, cand, session, day, dry_run, provider=None):
     expires = (dt.date.fromisoformat(day) + dt.timedelta(days=int(opts["expires_days"]))).isoformat()
     kwargs = dict(title=cand["title"].strip(), note_type=cand["type"], folder=opts["folder"],
                   body=cand["body"].strip(), source=f"distill {day} {session['sid'][:8]}",
-                  key=_slug(cand.get("key") or "") or None, expires=expires, dry_run=dry_run)
+                  key=_slug(cand.get("key") or "") or None, expires=expires, dry_run=dry_run,
+                  fields={"volatility": cand["volatility"]} if cand.get("volatility") in VOLATILITY else None)
     found = relate(cfg, cand, provider) if provider else None
     if found:
         relation, doc = found
@@ -518,13 +525,13 @@ def run(cfg, day=None, provider=None, dry_run=False, force=False):
     opts = options(cfg)
     days = [day] if day else pending_days(cfg)
     total = {"day": days[-1] if days else (day or (C.today() - dt.timedelta(days=1)).isoformat()),
-             "days": [], **{k: 0 for k in COUNTS}, "confirmed": 0, "archived": 0, "skipped": [],
+             "days": [], **{k: 0 for k in COUNTS}, "renewed": 0, "archived": 0, "skipped": [],
              "discarded_reasons": {}}
     if not opts["enabled"]:
         return total
     if not dry_run:
         # upkeep first, so its counts travel in the day's event
-        total["confirmed"], total["archived"] = confirm_used(cfg), archive_expired(cfg)
+        total["renewed"], total["archived"] = renew_used(cfg), archive_expired(cfg)
     done = processed_days(cfg) if not force else set()
     ran = [one for one in days if dry_run or one not in done]
     total["skipped"] = [one for one in days if one not in ran]
@@ -539,10 +546,10 @@ def run(cfg, day=None, provider=None, dry_run=False, force=False):
             last = one == ran[-1]
             TL.record(cfg["_vault"], {"ev": "distill", "day": one,
                                       **{k: counts[k] for k in COUNTS if k != "errors"},
-                                      "confirmed": total["confirmed"] if last else 0,
+                                      "renewed": total["renewed"] if last else 0,
                                       "archived": total["archived"] if last else 0}, cfg)
-    if not dry_run and not ran and (total["confirmed"] or total["archived"]):
-        TL.record(cfg["_vault"], {"ev": "distill_upkeep", "confirmed": total["confirmed"],
+    if not dry_run and not ran and (total["renewed"] or total["archived"]):
+        TL.record(cfg["_vault"], {"ev": "distill_upkeep", "renewed": total["renewed"],
                                   "archived": total["archived"]}, cfg)
     return total
 
@@ -573,27 +580,16 @@ def archive_expired(cfg, today=None):
     return moved
 
 
-# ───────────────────────────────────────────────────────────── confirm by use
-def _drop_keys(head, keys):
-    lines, out, skipping = head.split("\n"), [], False
-    for line in lines:
-        if re.match(r"^(%s):" % "|".join(map(re.escape, keys)), line):
-            skipping = True
-            continue
-        if skipping and (line[:1] in (" ", "\t") or line.strip().startswith("- ")):
-            continue
-        skipping = False
-        out.append(line)
-    return "\n".join(out)
-
-
-def confirm_used(cfg, days=2):
-    """Distilled notes (source `distill…`, with `expires`) that were read in the last `days`
-    become verified: set `verified` to today and drop `expires`. Touches only those two keys."""
+# ───────────────────────────────────────────────────────────── renew by use
+def renew_used(cfg, days=2):
+    """Distilled notes (source `distill…`, with `expires`) read in the last `days` stay alive:
+    `expires` moves to today + `expires_days`. Reading a note is not evidence that it is true,
+    so `verified` is never set here: only a review against the source does that (review.py)."""
     opts = options(cfg)
     folder = opts["folder"].strip("/")
+    until = (C.today() + dt.timedelta(days=int(opts["expires_days"]))).isoformat()
     paths = {e.get("p") for e in TL.read(cfg["_vault"], days=days) if e.get("ev") == "read" and e.get("p")}
-    confirmed = 0
+    renewed = 0
     for rel in sorted(p for p in paths if p.startswith(folder + "/")):
         path = cfg["_vault"] / rel
         try:
@@ -603,12 +599,11 @@ def confirm_used(cfg, days=2):
         fm, _ = C.frontmatter(text)
         end = text.find("\n---", 3)
         if not text.startswith("---") or end < 0 or not fm.get("source", "").startswith("distill") \
-                or "expires" not in fm:
+                or not fm.get("expires") or fm["expires"][:10] >= until:
             continue
-        head = _drop_keys(text[4:end], ["expires"])
-        head = N._set_keys(head, {"verified": C.today().isoformat()})
+        head = N._set_keys(text[4:end], {"expires": until})
         N._write_atomic(path, "---\n" + head + "\n---" + text[end + 4:])
-        confirmed += 1
-    if confirmed:
+        renewed += 1
+    if renewed:
         IX.build(cfg, quiet=True, incremental=True)
-    return confirmed
+    return renewed

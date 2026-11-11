@@ -194,10 +194,10 @@ class TestRender(unittest.TestCase):
                    "ev": "distill", "day": "old", "kept": 9},
                   {"t": now.isoformat(timespec="seconds"), "sid": "cli", "ev": "distill",
                    "day": "2026-11-09", "sessions": 4, "proposed": 5, "kept": 2, "updated": 1,
-                   "replaced": 0, "discarded": 2, "confirmed": 1}]
+                   "replaced": 0, "discarded": 2, "renewed": 1}]
         (state / "telemetry.jsonl").write_text("\n".join(map(json.dumps, events)) + "\n", encoding="utf-8")
         text = TD.render(C.load_config(self.vault), today=TODAY)
-        self.assertIn("distill 2026-11-09: 2 kept, 1 updated, 1 confirmed", text)
+        self.assertIn("distill 2026-11-09: 2 kept, 1 updated, 1 renewed", text)
         self.assertNotIn("9 kept", text)
 
 

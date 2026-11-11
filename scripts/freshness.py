@@ -6,6 +6,8 @@ other. All deterministic, over optional frontmatter fields (docs/freshness.md):
     replaces: [[Note]]     this note makes that one obsolete (supersede)
     expires:  YYYY-MM-DD   from then on it no longer holds (temporary agreements)
     key:      slug         the fact it talks about: one key, one current note
+    volatility: live|stable how fast it changes: a live note is due for review in weeks
+    review:   outdated     a review found the source says otherwise (review.py)
 
 What depends on the date (expired, unverified) is computed at query time, not at index time:
 yesterday's index must not say something "still holds" today.
@@ -18,6 +20,7 @@ import indexer as IX
 import recall as RC
 
 CURRENT = ("ok", "unverified")
+VOLATILITY = ("live", "stable")
 
 
 def annotate(docs, name_to_paths):
@@ -45,18 +48,33 @@ def days_unverified(d):
     return (C.today() - reference).days if reference else None
 
 
+def review_limit(d, settings=None):
+    """Days a note may go without verification: by volatility first, else by type."""
+    settings = settings or C.FRESHNESS
+    by_volatility = (settings.get("review_days_by_volatility") or {}).get(d.get("volatility", ""))
+    if by_volatility:
+        return int(by_volatility)
+    return int((settings.get("review_days_by_type") or {}).get(d.get("type"), settings.get("review_days", 180)))
+
+
+def reviewable(d, settings=None):
+    settings = settings or C.FRESHNESS
+    return d.get("type") in settings.get("types", []) or d.get("volatility") in VOLATILITY
+
+
 def state(d, settings=None):
-    """ok | replaced | expired | unverified."""
+    """ok | replaced | expired | outdated | unverified."""
     settings = settings or C.FRESHNESS
     if d.get("replaced_by"):
         return "replaced"
     expires = _date(d.get("expires"))
     if (expires and expires < C.today()) or C.norm(d.get("status", "")) in C.OBSOLETE:
         return "expired"
-    if d.get("type") in settings.get("types", []):
+    if d.get("review") == "outdated":
+        return "outdated"
+    if reviewable(d, settings):
         days = days_unverified(d)
-        limit = (settings.get("review_days_by_type") or {}).get(d.get("type"), settings.get("review_days", 180))
-        if days is not None and days > int(limit):
+        if days is not None and days > review_limit(d, settings):
             return "unverified"
     return "ok"
 
@@ -82,6 +100,7 @@ def analyze(idx, cfg):
     current = [d for d in docs if state(d, settings) in CURRENT]
     out = {
         "expired": sorted(d["p"] for d in docs if state(d, settings) == "expired"),
+        "outdated": sorted(d["p"] for d in docs if state(d, settings) == "outdated"),
         "replaced": sorted(({"p": d["p"], "by": d["replaced_by"]} for d in docs if d.get("replaced_by")),
                            key=lambda x: x["p"]),
         "unverified": sorted(({"p": d["p"], "days": days_unverified(d)} for d in docs
