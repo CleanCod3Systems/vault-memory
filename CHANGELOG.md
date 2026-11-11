@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.4.0 — 2026-11-11
+
+- Review against the source (`scripts/review.py`, `vault-memory review`, skill `verify`). The
+  queue ranks what to check now: notes contradicted (same `key`, or named by a learned note as
+  `Contradicts [[X]]`), learned notes never audited, notes people read or the hook suggests,
+  and notes past their review interval; a note checked in the last `review.gap_days` (7) waits.
+  `review PATH --verdict confirmed|outdated|unsure --evidence … [--confidence N]
+  [--volatility live|stable]` writes `checked`, `evidence` and, when confirmed, `verified` and
+  `confidence` (8-10 only). Frontmatter only, with a backup.
+- New state `outdated` (`review: outdated`): ×0.5 in recall, reported by `doctor`, never a hook
+  pointer. `volatility: live` notes are due after `freshness.review_days_by_volatility.live`
+  (21) days, whatever their type.
+- Recall JSON adds `confidence`, `checked` and `volatility`; the hook pointer shows
+  `verified 2026-11 9/10`. The `recall` skill says how sure each answer is.
+- distill: reading a learned note no longer verifies it, it only moves `expires` forward
+  (`renewed` replaces `confirmed` in the output and telemetry). Each fact carries `volatility`.
+
 ## 0.3.1 — 2026-11-11
 
 - distill never learns the same day twice (`--force` to redo one) and catches up the days it
