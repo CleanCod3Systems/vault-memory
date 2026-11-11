@@ -13,6 +13,7 @@
   vault-memory schedule [--at HH:MM] [--install]  automatic refresh at a fixed time
   vault-memory modules [--on X] [--off Y]         what is active; turn on and off
   vault-memory migrate [--apply]                  rewrite a legacy (Spanish) vault to the current names
+  vault-memory ingest --file F [--source S]       learn from a thread, issue or PR an agent collected
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
   vault-memory review --budget | --calibration    today's check count; does confidence hold up?
   vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
@@ -678,6 +679,8 @@ def cmd_distill(args, cfg):
     if not DS.options(cfg)["enabled"]:
         print("  distill is off: set `distill.enabled` in config.json")
         return
+    if args.sources:
+        cfg["distill"] = {**(cfg.get("distill") or {}), "sources": [s.strip() for s in args.sources.split(",") if s.strip()]}
     try:
         result = DS.run(cfg, day=args.day, dry_run=args.dry_run, force=args.force)
     except DS.DistillError as e:
@@ -686,6 +689,30 @@ def cmd_distill(args, cfg):
         print(json.dumps(result, ensure_ascii=False, indent=1))
     else:
         _print_distill(result)
+
+
+def cmd_ingest(args, cfg):
+    """Learn from material an agent collected (a thread, an issue, a PR): JSON or Markdown."""
+    import ingest as IG
+    import sources as SR
+    try:
+        raw = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text(encoding="utf-8")
+        session = SR.material(raw, source=args.source, url=args.url, ref_id=args.id, date=args.date,
+                              today=C.today())
+    except (OSError, ValueError) as e:
+        print(f"  ingest: {e}", file=sys.stderr)
+        sys.exit(2)
+    try:
+        result = IG.run(cfg, session, dry_run=args.dry_run)
+    except DS.DistillError as e:
+        sys.exit(f"  ingest: {e}")
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        return
+    reasons = ", ".join(f"{k} {v}" for k, v in sorted(result["discarded_reasons"].items()))
+    print(f"  ingest {result['source']} ({result['day']})  proposed {result['proposed']} · kept {result['kept']} · "
+          f"updated {result['updated']} · replaced {result['replaced']} · discarded {result['discarded']}"
+          + (f" ({reasons})" if reasons else "") + ("  [dry run]" if args.dry_run else ""))
 
 
 def cmd_refresh(args, cfg):
@@ -1120,8 +1147,18 @@ def main():
     p.add_argument("--day", help="YYYY-MM-DD (default: yesterday plus any missed days)")
     p.add_argument("--force", action="store_true", help="learn again from a day already processed")
     p.add_argument("--dry-run", dest="dry_run", action="store_true", help="call the model, write nothing")
+    p.add_argument("--sources", help="only these sources this run, e.g. codex,gemini (default `distill.sources`)")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_distill)
+    p = sub.add_parser("ingest", help="learn from material an agent collected (thread, issue, PR): JSON or Markdown")
+    p.add_argument("--source", help="where it comes from, lowercase (e.g. chat, issues, prs); required for Markdown")
+    p.add_argument("--file", required=True, help="path to a .json or .md file, or - for stdin")
+    p.add_argument("--url", help="link to the original (stored with the candidate)")
+    p.add_argument("--id", help="id in the original system (default: a hash of the content)")
+    p.add_argument("--date", help="YYYY-MM-DD the material is from (default: the JSON date or today)")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", help="call the model, write nothing")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_ingest)
     p = sub.add_parser("today", help="daily summary: what is next, waiting and due soon")
     p.add_argument("--all", action="store_true", help="every open item, not only the top ones")
     p.add_argument("--json", action="store_true")

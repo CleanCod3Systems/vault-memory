@@ -28,6 +28,7 @@ import note as N
 import recall as RC
 import indexer as IX
 import telemetry as TL
+import sources as SR
 
 DEFAULTS = {"enabled": False, "auto": False, "provider": "claude-cli", "model": "haiku",
             "folder": "Memory/learned", "exclude_paths": [], "max_per_session": 3,
@@ -36,8 +37,6 @@ DEFAULTS = {"enabled": False, "auto": False, "provider": "claude-cli", "model": 
             "base_url": "", "api_key_env": ""}
 EVIDENCE_MAX = 200
 API_MODELS = {"haiku": "claude-haiku-5-5"}
-NOT_HUMAN = ("<task-notification", "<command-", "<local-command", "<system-reminder",
-             "<agent-message", "<pasted_content")
 
 
 class DistillError(Exception):
@@ -103,106 +102,37 @@ def redact(text):
     return text
 
 
-# ───────────────────────────────────────────────────────────── transcripts
-def config_dir():
-    return Path(os.environ.get("CLAUDE_CONFIG_DIR") or Path.home() / ".claude")
-
-
-def _blocks_text(content):
-    """Text of a message, or None when it carries tool results (not a human prompt)."""
-    if isinstance(content, str):
-        return content
-    if not isinstance(content, list):
-        return None
-    parts = []
-    for block in content:
-        if isinstance(block, str):
-            parts.append(block)
-        elif isinstance(block, dict):
-            if block.get("type") == "tool_result":
-                return None
-            if block.get("type") == "text":
-                parts.append(block.get("text", ""))
-    return "".join(parts)
-
-
-def _local_day(timestamp):
-    try:
-        moment = dt.datetime.fromisoformat(str(timestamp).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return moment.astimezone().date().isoformat()
-
-
-def _is_human_prompt(event, text):
-    if event.get("isMeta") or event.get("isSidechain") or text is None:
-        return False
-    origin = event.get("origin")
-    if isinstance(origin, dict) and origin.get("kind") not in (None, "human"):
-        return False
-    stripped = text.strip()
-    return bool(stripped) and not stripped.startswith(NOT_HUMAN)
-
-
-def parse_transcript(path):
-    """{sid, cwd, day, prompts, turns} of one transcript; turns = [(prompt, last assistant text)]."""
-    sid, cwd, day = Path(path).stem, "", None
-    turns, assistant_text = [], ""
-    for line in Path(path).read_text(encoding="utf-8", errors="ignore").splitlines():
-        try:
-            event = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(event, dict):
-            continue
-        cwd = cwd or event.get("cwd") or ""
-        if event.get("sessionId") and not turns:
-            sid = event["sessionId"]
-        message = event.get("message") or {}
-        if event.get("type") == "user":
-            text = _blocks_text(message.get("content"))
-            if _is_human_prompt(event, text):
-                if turns:
-                    turns[-1][1] = assistant_text
-                assistant_text = ""
-                day = day or _local_day(event.get("timestamp"))
-                turns.append([text.strip(), ""])
-        elif event.get("type") == "assistant" and turns and not event.get("isSidechain"):
-            text = _blocks_text(message.get("content"))
-            if text and text.strip():
-                assistant_text = text.strip()
-    if turns:
-        turns[-1][1] = assistant_text
-    return {"sid": sid, "cwd": cwd, "day": day, "prompts": [t[0] for t in turns], "turns": turns}
-
-
-def session_text(turns):
-    out = []
-    for prompt, reply in turns:
-        out.append(f"[user] {prompt}")
-        if reply:
-            out.append(f"[assistant] {reply}")
-    return "\n".join(out)
-
-
+# ───────────────────────────────────────────────────────────── sessions
 def read_sessions(cfg, day):
-    """Sessions whose first human prompt falls on `day` (local date), redacted and truncated."""
+    """Sessions whose first human prompt falls on `day` (local date), from every source in
+    `distill.sources` (sources.py), redacted and truncated."""
     opts = options(cfg)
     excluded = tuple(str(Path(p).expanduser()) for p in opts["exclude_paths"])
+    try:
+        found = SR.sessions(cfg, day)
+    except SR.SourceError as e:
+        raise DistillError(str(e))
     out = []
-    for path in sorted((config_dir() / "projects").glob("*/*.jsonl")):
-        try:
-            session = parse_transcript(path)
-        except OSError:
-            continue
+    for session in found:
         if session["day"] != day or len(session["prompts"]) < int(opts["min_prompts"]):
             continue
         if excluded and session["cwd"].startswith(excluded):
             continue
-        text = redact(session_text(session.pop("turns")))
+        text = redact(SR.render(session.pop("messages")))
         session["text"] = text[-int(opts["max_chars"]):]
         out.append(session)
     return out
+
+
+def _ref(session):
+    """How a note names the session it came from: the short id of a Claude Code session, or
+    `<origin>:<id>` for the other sources."""
+    return session.get("ref") or session["sid"][:8]
+
+
+def _provenance(session):
+    """Frontmatter that says where a note came from, for sources other than Claude Code."""
+    return {k: session[k] for k in ("origin", "url") if session.get(k)}
 
 
 # ───────────────────────────────────────────────────────────── prompts and schemas
@@ -489,13 +419,16 @@ def _slug(text):
 
 # ───────────────────────────────────────────────────────────── apply
 def write_inbox(cfg, cand, session, day, index, dry_run):
-    path = Path(cfg["_state"]) / "inbox" / f"{day}-{session['sid'][:8]}-{index}-{_slug(cand['title'])[:50]}.md"
+    ref = re.sub(r"[^\w.-]+", "-", _ref(session))[:40]
+    path = Path(cfg["_state"]) / "inbox" / f"{day}-{ref}-{index}-{_slug(cand['title'])[:50]}.md"
     if path.exists():
         return "already_in_inbox"
     if not dry_run:
         text = ("---\n" + f"type: {cand['type']}\nkey: {_slug(cand.get('key') or '')}\n"
                 + (f"volatility: {cand['volatility']}\n" if cand.get("volatility") in VOLATILITY else "")
-                + f"source: distill {day} {session['sid'][:8]}\nsession: {session['sid']}\n---\n\n"
+                + f"source: distill {day} {_ref(session)}\nsession: {session['sid']}\n"
+                + "".join(f"{k}: {N._yaml_value(v)}\n" for k, v in _provenance(session).items())
+                + "---\n\n"
                 f"# {cand['title']}\n\n{cand['body'].strip()}\n\n## Evidence\n\n> {cand['evidence'].strip()}\n")
         N._write_atomic(path, text)
     return "kept"
@@ -533,9 +466,10 @@ def write_auto(cfg, opts, cand, session, day, dry_run, provider=None):
     with the same key but other content is replaced. Returns kept|updated|replaced|reason."""
     expires = (dt.date.fromisoformat(day) + dt.timedelta(days=int(opts["expires_days"]))).isoformat()
     kwargs = dict(title=cand["title"].strip(), note_type=cand["type"], folder=opts["folder"],
-                  body=cand["body"].strip(), source=f"distill {day} {session['sid'][:8]}",
+                  body=cand["body"].strip(), source=f"distill {day} {_ref(session)}",
                   key=_slug(cand.get("key") or "") or None, expires=expires, dry_run=dry_run,
-                  fields={"volatility": cand["volatility"]} if cand.get("volatility") in VOLATILITY else None)
+                  fields={**({"volatility": cand["volatility"]} if cand.get("volatility") in VOLATILITY else {}),
+                          **_provenance(session)} or None)
     found = relate(cfg, cand, provider) if provider else None
     if found:
         relation, doc = found
