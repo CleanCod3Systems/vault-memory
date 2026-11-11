@@ -1,0 +1,52 @@
+# Memory you can trust: what was checked at its source, what is due, what turned out wrong.
+# Fields written by `vault-memory review` (verified, confidence, evidence, checked, review,
+# volatility). Nothing here edits a note: it is a saved view.
+filters:
+  or:
+    - 'type == "doc"'
+    - 'type == "decision"'
+    - 'type == "reference"'
+    - 'type == "note"'
+    - 'type == "runbook"'
+    - 'type == "project"'
+    - 'volatility == "live"'
+formulas:
+  state: 'if(review == "outdated", "✗ outdated", if(review == "unsure", "? unsure", if(confidence, "✓ checked", if(verified, "· confirmed by hand", "· never verified"))))'
+  days: 'if(verified, (today() - date(verified)).days, "")'
+properties:
+  formula.state: { displayName: State }
+  formula.days: { displayName: Days since verified }
+  confidence: { displayName: "Confidence /10" }
+  volatility: { displayName: Volatility }
+  evidence: { displayName: Evidence }
+  checked: { displayName: Last check }
+views:
+  - type: table
+    name: Never verified
+    filters:
+      and:
+        - '!verified'
+        - 'review != "outdated"'
+    order: [file.name, type, area, file.mtime]
+  - type: table
+    name: Checked at the source
+    filters:
+      and:
+        - 'confidence'
+    order: [formula.state, file.name, confidence, verified, formula.days, volatility, evidence]
+  - type: table
+    name: Live facts
+    filters:
+      and:
+        - 'volatility == "live"'
+    order: [formula.state, file.name, verified, formula.days, confidence]
+  - type: table
+    name: Outdated or unsure
+    filters:
+      or:
+        - 'review == "outdated"'
+        - 'review == "unsure"'
+    order: [formula.state, file.name, checked, evidence]
+  - type: table
+    name: All
+    order: [formula.state, file.name, type, verified, formula.days, confidence, volatility]
