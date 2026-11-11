@@ -70,7 +70,8 @@ def _recall(cfg, args):
                         status=args.get("status"), since=args.get("since"), n=int(args.get("n", 5)))
     query_terms = list(C.tokens(query, keep_stopwords=True))
     TL.record(cfg["_vault"], {"ev": "recall", "origin": "mcp", "q": query[:200], "n": len(results),
-                              "top": round(results[0][0], 1) if results else 0}, cfg)
+                              "top": round(results[0][0], 1) if results else 0,
+                              "ps": [d["p"] for _, d in results[:3]]}, cfg)
     width = 160 if args.get("brief", True) else 300
     return [{"score": round(s, 1), "p": d["p"], "t": d["t"], "type": d["type"], "date": d["date"],
              "status": d["status"], "state": FR.state(d), "replaced_by": d.get("replaced_by", ""),
@@ -85,6 +86,7 @@ def _read(cfg, args):
         raise ValueError(f"path outside the vault or not allowed: {rel}")
     text = path.read_text(encoding="utf-8")
     _, body = C.frontmatter(text)
+    TL.record(cfg["_vault"], {"ev": "read", "p": rel, "via": "mcp"}, cfg)
     width = int(args.get("width", 800))
     if args.get("section"):
         parts = re.split(r"(?m)^##\s+", body)

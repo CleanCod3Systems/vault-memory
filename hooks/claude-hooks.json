@@ -8,7 +8,7 @@
       {"matcher": "^(mcp__.*|WebFetch|WebSearch)$", "hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/gate.py"], "timeout": 5}]}
     ],
     "PostToolUse": [
-      {"matcher": "Read", "hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/read.py"], "timeout": 5}]}
+      {"matcher": "Read|Bash", "hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/read.py"], "timeout": 5}]}
     ],
     "SessionStart": [
       {"matcher": "startup", "hooks": [{"type": "command", "command": "python3", "args": ["${CLAUDE_PLUGIN_ROOT}/hooks/today.py"], "timeout": 5}]},
