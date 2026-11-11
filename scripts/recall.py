@@ -5,6 +5,7 @@ BM25 + domain signals over the state folder's index.json. No network, no model, 
 The index refreshes itself only when it went stale: a new, changed or deleted note, or a
 config or tokenization change. It rescans only what changed.
 """
+import datetime as dt
 import json
 import math
 import re
@@ -56,6 +57,114 @@ def load(cfg, auto=True):
     if stored is None:
         raise SystemExit("There is no index and it could not be built. Run:  vault-memory index")
     return stored
+
+
+# ───────────────────────────────────────────────────────────── time in the query
+MONTHS = {**{m.lower(): i for m, i in C.MONTHS_EN.items()}, **C.MONTHS_ES, "setiembre": 9}
+_MONTH = "|".join(sorted(MONTHS, key=len, reverse=True))
+RE_ISO_DAY = re.compile(r"\b((?:19|20)\d{2})-(\d{2})-(\d{2})\b")
+RE_ISO_MONTH = re.compile(r"\b((?:19|20)\d{2})-(\d{2})\b(?!-\d)")
+# A month name counts only with a preposition or a year: "may", "march" are also verbs.
+RE_MONTH = re.compile(r"(?:\b(?:en|de|del|in|of|during|durante)\s+)?\b(" + _MONTH + r")\b"
+                      r"(?:,?\s+(?:de\s+|del\s+|of\s+)?((?:19|20)\d{2})\b)?")
+RELATIVE = [
+    (re.compile(r"\b(?:hoy|today)\b"), "today"),
+    (re.compile(r"\b(?:ayer|yesterday)\b"), "yesterday"),
+    (re.compile(r"\b(?:(?:la\s+)?semana\s+pasada|last\s+week)\b"), "last_week"),
+    (re.compile(r"\b(?:esta\s+semana|this\s+week)\b"), "this_week"),
+    (re.compile(r"\b(?:(?:el\s+)?mes\s+pasado|last\s+month)\b"), "last_month"),
+    (re.compile(r"\b(?:este\s+mes|this\s+month)\b"), "this_month"),
+]
+
+
+def _month_span(year, month):
+    start = dt.date(year, month, 1)
+    end = dt.date(year + month // 12, month % 12 + 1, 1) - dt.timedelta(days=1)
+    return start, end
+
+
+def _relative_span(kind, today):
+    monday = today - dt.timedelta(days=today.weekday())
+    if kind == "today":
+        return today, today
+    if kind == "yesterday":
+        return today - dt.timedelta(days=1), today - dt.timedelta(days=1)
+    if kind == "last_week":
+        return monday - dt.timedelta(days=7), monday - dt.timedelta(days=1)
+    if kind == "this_week":
+        return monday, today
+    if kind == "last_month":
+        last = today.replace(day=1) - dt.timedelta(days=1)
+        return _month_span(last.year, last.month)
+    return today.replace(day=1), today
+
+
+def time_query(query, today):
+    """([(start, end)], rest): the date ranges a query names, relative to `today`, and the
+    query without those words (normalized). No time expression → ([], query)."""
+    text, spans = C.norm(query), []
+
+    def cut(regex, to_span):
+        nonlocal text
+
+        def one(match):
+            span = to_span(match)
+            if not span:
+                return match.group(0)
+            spans.append(span)
+            return " "
+        text = regex.sub(one, text)
+
+    def iso_day(m):
+        try:
+            day = dt.date(int(m.group(1)), int(m.group(2)), int(m.group(3)))
+        except ValueError:
+            return None
+        return day, day
+
+    def month(m):
+        number, year = MONTHS[m.group(1)], m.group(2)
+        if year:
+            return _month_span(int(year), number)
+        if m.group(0).startswith(m.group(1)):
+            return None                      # a bare month name: maybe a verb ("may")
+        # Without a year: the latest one that is not in the future.
+        return _month_span(today.year if number <= today.month else today.year - 1, number)
+
+    cut(RE_ISO_DAY, iso_day)
+    cut(RE_ISO_MONTH, lambda m: _month_span(int(m.group(1)), int(m.group(2)))
+        if 1 <= int(m.group(2)) <= 12 else None)
+    cut(RE_MONTH, month)
+    for regex, kind in RELATIVE:
+        cut(regex, lambda m, kind=kind: _relative_span(kind, today))
+    if not spans:
+        return [], query
+    return spans, " ".join(text.split())
+
+
+def _date_span(value):
+    value = (value or "")[:10]
+    try:
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
+            day = dt.date.fromisoformat(value)
+            return day, day
+        if re.fullmatch(r"\d{4}-\d{2}", value):
+            return _month_span(int(value[:4]), int(value[5:7]))
+    except ValueError:
+        pass
+    return None
+
+
+def in_time(d, spans):
+    """The note's date (`date`, `created`, `verified`, or a date in its name) falls in a span."""
+    dates = [d.get("date"), d.get("created"), d.get("verified")]
+    named = C.RE_DATE.search(d.get("n", ""))
+    dates.append(named.group(1) if named else "")
+    for value in dates:
+        own = _date_span(value)
+        if own and any(own[0] <= end and start <= own[1] for start, end in spans):
+            return True
+    return False
 
 
 # ────────────────────────────────────────────────────────────────── scoring
@@ -125,6 +234,8 @@ def search(idx, query, note_type=None, area=None, status=None, system=None, sinc
 
     doc_freq, total, average = stats_of(idx)
     query = query.strip()
+    # "what broke yesterday": the date points at the notes' dates, it is not a word to match.
+    spans, query = time_query(query, C.today()) if C.TIME_BOOST else ([], query)
     query_terms = list(C.tokens(query, keep_stopwords=True))
     normalized = C.norm(query)
     # An ID or a ticket is searched exactly: any partial match is noise.
@@ -148,8 +259,10 @@ def search(idx, query, note_type=None, area=None, status=None, system=None, sinc
             score = bm25(d, query_terms, doc_freq, total, average)
             if score > 0 and query_set:
                 # How much of the query is in the name/title: BM25 alone did not reward a note
-                # whose title is almost the query against long notes with many mentions.
-                score += C.TITLE_BONUS * len(query_set & set(C.tokens(d["n"] + " " + d["t"]))) / len(query_set)
+                # whose title is almost the query against long notes with many mentions. With
+                # expanded keys an alias or a question the note answers counts as a title.
+                names = [d["n"] + " " + d["t"]] + ((d.get("alt") or []) if C.EXPAND_KEYS else [])
+                score += C.TITLE_BONUS * max(len(query_set & set(C.tokens(x))) for x in names) / len(query_set)
             if query_ids & set(d["ids"]):
                 score += 25
             if query_tickets & {x.upper() for x in d["refs"]["tickets"]}:
@@ -168,6 +281,10 @@ def search(idx, query, note_type=None, area=None, status=None, system=None, sinc
                     score += 1.5
                 if C.norm(d["sev"]) in C.HIGH_SEVERITY:
                     score += 1.0
+        # Notes dated in the range the query names go up; with nothing but the date in the
+        # query they are listed with a minimal score (below any hook floor). None is dropped.
+        if spans and in_time(d, spans):
+            score = score * (1 + C.TIME_BOOST) if score > 0 else (0.0 if query_set else 1.0)
         # Freshness: replaced or expired notes go down (they do not disappear: they may be
         # exactly what is being searched). An exact ID is not penalized.
         if score > 0 and not exact and not include_expired:

@@ -45,6 +45,18 @@ def title_of(body, name):
     return (match.group(1) if match else name).strip()
 
 
+def fm_list(value):
+    """A frontmatter list as the tolerant parser leaves it ("a,b" or "[a, b]") → items."""
+    return [x.strip().strip('"').strip("'") for x in value.strip().strip("[]").split(",") if x.strip()]
+
+
+def alternate_keys(fm):
+    """(names, questions): other ways to name the note (`aliases`, its `key` slug) and to ask
+    for it (`keys`, the questions it answers; a future distill can fill them)."""
+    key = fm.get("key", "").strip().replace("-", " ").replace("_", " ")
+    return ([key] if key else []) + fm_list(fm.get("aliases", "")), fm_list(fm.get("keys", ""))
+
+
 def snippet(body, width=260):
     for line in body.splitlines():
         text = line.strip()
@@ -120,6 +132,14 @@ def scan(cfg, previous=None):
                 term_freq[term] += int(weights.get("h2_weight", 2))
         for term in C.tokens(" ".join(rel.split("/")[:-1]).replace("-", " ")):
             term_freq[term] += int(weights.get("path_weight", 1))
+        names, questions = alternate_keys(fm)
+        if weights.get("expand_keys"):
+            # An alias or the key is another name of the note: it weighs like the name. A
+            # question it answers describes it, like a section title does.
+            for term in C.tokens(" ".join(names)):
+                term_freq[term] += 3
+            for term in C.tokens(" ".join(questions)):
+                term_freq[term] += int(weights.get("h2_weight", 2))
         # Total order (frequency, term) so the cut is the same on every run.
         term_freq = dict(sorted(term_freq.items(), key=lambda x: (-x[1], x[0]))[:max_terms])
 
@@ -161,6 +181,7 @@ def scan(cfg, previous=None):
             # Freshness: all optional. `replaces` is resolved to paths in freshness.annotate().
             "verified": fm.get("verified", "").strip()[:10], "source": fm.get("source", "").strip()[:200],
             "expires": fm.get("expires", "").strip()[:10], "key": fm.get("key", "").strip(),
+            "created": fm.get("created", "").strip()[:10], "alt": (names + questions)[:20],
             # Written by a review against the source (review.py): all optional.
             "volatility": fm.get("volatility", "").strip(), "confidence": fm.get("confidence", "").strip()[:2],
             "review": fm.get("review", "").strip(), "checked": fm.get("checked", "").strip()[:10],

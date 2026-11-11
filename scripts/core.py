@@ -112,7 +112,14 @@ CONFIG_DEF = {
                "title_bonus": 8,
                # BM25 saturation and length normalization, and how much past use lifts a note
                # (0 = off). `vault-memory bench --tune` measures them against your own cases.
-               "k1": 1.4, "b": 0.72, "prior_weight": 0.0},
+               "k1": 1.4, "b": 0.72, "prior_weight": 0.0,
+               # Expanded keys: `aliases`, `key` and `keys` (other ways to ask for the note)
+               # are indexed and count for the title bonus.
+               "expand_keys": True,
+               # A time expression in the query ("yesterday", "last week", "en octubre",
+               # 2026-10-05) lifts the notes dated in that range by this fraction (0 = off).
+               # It never drops a note.
+               "time_boost": 0.5},
     "hook": {},               # thresholds and regexes of the UserPromptSubmit hook (see hookfilter.py)
     # Freshness (docs/freshness.md): which types are reviewed, after how many days an
     # unverified note is reported, and how much a replaced/expired note weighs in recall.
@@ -245,16 +252,19 @@ FRESHNESS = dict(CONFIG_DEF["freshness"])
 TITLE_BONUS = CONFIG_DEF["recall"]["title_bonus"]
 BM25_K1, BM25_B = CONFIG_DEF["recall"]["k1"], CONFIG_DEF["recall"]["b"]
 PRIOR_WEIGHT, PRIOR = 0.0, {}
+EXPAND_KEYS, TIME_BOOST = False, 0.0
 _STEMMER, _IRREGULAR_EXTRA, _STOP_EXTRA = "en", {}, set()
 
 
 def configure(cfg):
     global CLOSED, OBSOLETE, HIGH_SEVERITY, SIMILAR_SKIP, _STEMMER, _IRREGULAR_EXTRA, _STOP_EXTRA
-    global FRESHNESS, TITLE_BONUS, BM25_K1, BM25_B, PRIOR_WEIGHT, PRIOR
+    global FRESHNESS, TITLE_BONUS, BM25_K1, BM25_B, PRIOR_WEIGHT, PRIOR, EXPAND_KEYS, TIME_BOOST
     FRESHNESS = cfg["freshness"]
     TITLE_BONUS = float(cfg["recall"].get("title_bonus", 8))
     BM25_K1, BM25_B = float(cfg["recall"].get("k1", 1.4)), float(cfg["recall"].get("b", 0.72))
     PRIOR_WEIGHT, PRIOR = float(cfg["recall"].get("prior_weight", 0) or 0), {}
+    EXPAND_KEYS = bool(cfg["recall"].get("expand_keys"))
+    TIME_BOOST = float(cfg["recall"].get("time_boost", 0) or 0)
     if PRIOR_WEIGHT and cfg.get("_state"):
         # How often each note was read lately (written by `refresh` and `bench`).
         try:
@@ -370,7 +380,7 @@ TOK = re.compile(r"[a-z0-9][a-z0-9_\-\.]{1,31}")
 # letters, one suffix after the plural, and tokens with digits, dashes, dots or _ are never
 # touched (IDs, ATL-123, api-service, logs-back-*).
 TOK_VER = 2   # bump when tokenization changes: invalidates the index
-IDX_VER = 4   # bump when the fields of each indexed doc change
+IDX_VER = 5   # bump when the fields of each indexed doc change
 ALPHA = re.compile(r"[a-z]+")
 
 IRREGULAR_ES = {"cayo": "cai", "cayeron": "cai", "caido": "cai", "caida": "cai", "caidos": "cai",
