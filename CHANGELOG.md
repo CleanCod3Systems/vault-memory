@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-11-11
 
 - Daily summary (`scripts/today.py`, `hooks/today.py`, SessionStart `startup`): once per local
   day, interactive sessions only (`today.entrypoints`, default `cli`), up to 8 lines with what is
