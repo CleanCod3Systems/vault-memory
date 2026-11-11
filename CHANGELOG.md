@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Safe writes next to Obsidian: `note --update`, `review` and distill's renewal re-read the
+  note right before writing and stop with exit 4 (nothing written) if it changed since it was
+  read, so a save from Obsidian in between is never lost.
+- `doctor` checks the Obsidian Properties rules: deprecated `tag`, `alias`, `cssclass`,
+  unquoted wikilinks in values, nested values and repeated keys (`doctor --json` →
+  `properties`). Report only.
+- `standard/bases/Memory.base`: a view of the review fields (never verified, checked at the
+  source, live facts, outdated or unsure). `vault-memory bases [NAME…] [--install] [--folder F]`
+  adds the standard views a vault lacks (or only the named ones) and never overwrites one.
+- `vault-memory links`: similar notes with no wikilink between them (same similarity as near
+  duplicates, from 0.35 up to the duplicate threshold), leaving out dated siblings and
+  "Prefix - X" series of one folder. Read only.
+
 ## 0.5.0 — 2026-11-11
 
 - `vault-memory bench` (`scripts/bench.py`): recall measured on the vault's own history. Cases

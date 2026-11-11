@@ -77,6 +77,10 @@ verdict has to be `unsure`. Confirming sets `verified` and drops `review` (and `
 learned note). Only frontmatter is written, with a backup in the state folder. Reading a note
 never verifies it.
 
+To see all of this inside Obsidian, `vault-memory bases Memory --install` adds `Memory.base`: views of
+the notes never verified, the ones checked at the source with their confidence, the live facts
+and the ones a review found outdated or unsure.
+
 ## How it gets written
 
 With `vault-memory note` (or the MCP tool `write_note`), which looks for duplicates before

@@ -13,6 +13,7 @@ write goes through `vault-memory note`, `fix` or `migrate` after an explicit OK.
 vault-memory doctor --json
 vault-memory usage --json          # pointers used, never read, missed recall, gaps
 vault-memory bench --json          # recall on the user's own history: MRR with its interval, misses
+vault-memory links --json          # similar notes with no link between them
 vault-memory patterns              # recurrence and stale records (refreshes derived files only)
 ```
 
