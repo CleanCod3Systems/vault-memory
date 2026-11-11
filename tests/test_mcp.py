@@ -56,7 +56,7 @@ class TestMCP(unittest.TestCase):
         self.assertIn("user", result["instructions"])
         self.call("notifications/initialized", notification=True)
         names = {t["name"] for t in self.call("tools/list")["result"]["tools"]}
-        self.assertEqual(names, {"recall", "read_passage", "write_note", "doctor"})
+        self.assertEqual(names, {"recall", "read_passage", "write_note", "doctor", "flag_for_review"})
 
         rows, error = self.tool("recall", {"q": "duplicate refund"})
         self.assertFalse(error)
@@ -88,6 +88,32 @@ class TestMCP(unittest.TestCase):
     def test_unknown_tool(self):
         response = self.call("tools/call", {"name": "nope", "arguments": {}})
         self.assertEqual(response["error"]["code"], -32602)
+
+    def test_ask_and_discuss_prompts(self):
+        result = self.call("initialize", {"protocolVersion": "2025-06-18"})["result"]
+        self.assertIn("prompts", result["capabilities"])
+        prompts = {p["name"]: p for p in self.call("prompts/list")["result"]["prompts"]}
+        self.assertEqual(set(prompts), {"ask", "discuss"})
+        self.assertTrue(prompts["discuss"]["arguments"][0]["required"])
+        got = self.call("prompts/get", {"name": "discuss", "arguments": {"claim": "refunds never use queues"}})
+        text = got["result"]["messages"][0]["content"]["text"]
+        self.assertIn("refunds never use queues", text)
+        self.assertIn("flag_for_review", text)
+        self.assertEqual(self.call("prompts/get", {"name": "ask", "arguments": {}})["error"]["code"], -32602)
+        self.assertEqual(self.call("prompts/get", {"name": "nope"})["error"]["code"], -32602)
+
+    def test_recall_says_how_sure_and_a_dispute_is_flagged(self):
+        self.call("initialize", {"protocolVersion": "2025-06-18"})
+        rows, _ = self.tool("recall", {"q": "duplicate refund"})
+        self.assertIn("confidence", rows[0])
+        self.assertIn("verified", rows[0])
+        flagged, error = self.tool("flag_for_review", {"p": rows[0]["p"], "reason": "user says it changed"})
+        self.assertFalse(error)
+        self.assertEqual(flagged["origin"], "mcp")
+        lines = (self.vault / ".vault-memory" / "flags.jsonl").read_text(encoding="utf-8").splitlines()
+        self.assertEqual(json.loads(lines[-1])["p"], rows[0]["p"])
+        _, error = self.tool("flag_for_review", {"p": "../outside.md", "reason": "x"})
+        self.assertTrue(error)
 
 
 if __name__ == "__main__":

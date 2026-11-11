@@ -170,6 +170,29 @@ class TestRecord(Env):
         self.cli("review", ACCESS, "--verdict", "confirmed", "--confidence", "6", "--evidence", "x", code=2)
 
 
+class TestFlag(Env):
+    RETRY = "Memory/Retry policy v2.md"
+
+    def test_a_flag_puts_a_current_note_first_without_editing_it(self):
+        before = self.text(self.RETRY)
+        self.assertNotIn(self.RETRY, self.paths(n=100))
+        out = self.cli("review", self.RETRY, "--flag", "the team says retries are now 5, mail ana@example.com", "--json")
+        self.assertIn("[REDACTED:email]", json.loads(out)["reason"])
+        row = self.queue(n=100)["queue"][0]
+        self.assertEqual(row["p"], self.RETRY)
+        self.assertIn("disputed in a conversation", row["reasons"][0])
+        self.assertEqual(self.text(self.RETRY), before, "a flag never edits the note")
+
+    def test_a_review_after_the_flag_settles_it(self):
+        RV.flag(self.cfg(), self.RETRY, "user says it changed")
+        RV.record(self.cfg(), self.RETRY, "unsure", "could not reach the source")
+        self.assertEqual(RV.open_flags(self.cfg()), {})
+
+    def test_bad_flags_are_refused(self):
+        self.cli("review", self.RETRY, "--flag", "  ", code=2)
+        self.cli("review", "../outside.md", "--flag", "x", code=2)
+
+
 class TestVolatility(Env):
     def write(self, volatility):
         return N.write(self.cfg(), title=f"Status {volatility}", note_type="doc", folder="Memory",

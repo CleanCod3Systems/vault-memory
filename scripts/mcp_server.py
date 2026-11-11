@@ -55,10 +55,54 @@ TOOLS = [
      "description": "Memory health: contract coverage, broken links and freshness (expired, replaced, "
                     "contradictions, near duplicates). Read only.",
      "inputSchema": {"type": "object", "properties": {}}},
+    {"name": "flag_for_review",
+     "description": "The user says a note may be wrong. Records why, without editing the note: it goes "
+                    "first in the review queue until someone checks it at its source.",
+     "inputSchema": {"type": "object", "required": ["p", "reason"], "properties": {
+         "p": {"type": "string", "description": "path of the note (field p of recall)"},
+         "reason": {"type": "string", "description": "one line: what was said against it and by whom"}}}},
 ]
 
-INSTRUCTIONS = ("Vault memory: call recall before searching elsewhere; use write_note to save facts "
-                "(it handles duplicates and freshness). Reply to the user in their own language.")
+INSTRUCTIONS = ("Vault memory: call recall before searching elsewhere and answer from the notes, citing "
+                "each one with how sure it is (verified date and confidence, or not verified). If nothing "
+                "matches, say it is not in the memory. When the user disputes what a note says, weigh the "
+                "evidence instead of giving in, and use flag_for_review so the note is checked at its source. "
+                "Use write_note to save facts (it handles duplicates and freshness). Reply to the user in "
+                "their own language.")
+
+HOW_SURE = ("For each claim cite the note (its path) and how sure it is: \"verified YYYY-MM-DD, N/10\" "
+            "from its verified and confidence fields, or \"not verified\". A note whose source starts with "
+            "\"distill\" was learned from past sessions by a model: say so. A note in state replaced, expired "
+            "or outdated is not an answer: say what replaced it or that it is out of date.")
+
+PROMPTS = {
+    "ask": {
+        "title": "Ask my memory",
+        "description": "Answer a question only from the vault, citing each note and how verified it is.",
+        "arg": ("question", "what you want to know"),
+        "text": ("Answer from my vault memory only.\n\nQuestion: {value}\n\n"
+                 "1. Call recall with 2 to 4 short queries in the words the notes would use (IDs and tickets "
+                 "as they are). Use read_passage only when the passage is not enough.\n"
+                 "2. Answer only with what the notes say. " + HOW_SURE + "\n"
+                 "3. If nothing answers it, say it is not in my memory. Do not fill the gap with general "
+                 "knowledge unless I ask, and then label it as not coming from my notes.\n"
+                 "4. End with what is missing to be sure, if anything. Keep talking with me: follow-up "
+                 "questions go through recall again.")},
+    "discuss": {
+        "title": "Discuss with my memory",
+        "description": "Weigh a claim against what the vault says: evidence for and against, then a position.",
+        "arg": ("claim", "what you claim, doubt or want to argue about"),
+        "text": ("Let's discuss this against my vault memory.\n\nClaim: {value}\n\n"
+                 "1. Call recall for the claim and for its opposite.\n"
+                 "2. Lay out what the notes say, separating what supports the claim from what contradicts "
+                 "it. " + HOW_SURE + "\n"
+                 "3. Take a position on the evidence: the notes back the claim, contradict it, or do not "
+                 "settle it. Do not give in because I insist; change your position only with new evidence, "
+                 "and say which.\n"
+                 "4. If I bring something that says a note is wrong, call flag_for_review with that note and "
+                 "a one-line reason: the note is not edited, it goes first to be checked at its source. Save "
+                 "a new fact with write_note only if I confirm it and say where it comes from.")},
+}
 
 
 def _recall(cfg, args):
@@ -75,6 +119,8 @@ def _recall(cfg, args):
     width = 160 if args.get("brief", True) else 300
     return [{"score": round(s, 1), "p": d["p"], "t": d["t"], "type": d["type"], "date": d["date"],
              "status": d["status"], "state": FR.state(d), "replaced_by": d.get("replaced_by", ""),
+             "verified": d.get("verified", ""), "confidence": d.get("confidence", ""),
+             "checked": d.get("checked", ""), "source": d.get("source", ""),
              "passage": RC.passage(cfg, d, query_terms, width)} for s, d in results]
 
 
@@ -124,7 +170,33 @@ def _doctor(cfg, args):
             "totals": {k: len(v) for k, v in report.items()}}
 
 
-HANDLERS = {"recall": _recall, "read_passage": _read, "write_note": _write, "doctor": _doctor}
+def _flag(cfg, args):
+    import review as RV
+    try:
+        return RV.flag(cfg, str(args.get("p", "")), str(args.get("reason", "")), origin="mcp")
+    except NT.NoteError as e:
+        return {"error": e.message, "code": e.code}
+
+
+HANDLERS = {"recall": _recall, "read_passage": _read, "write_note": _write, "doctor": _doctor,
+            "flag_for_review": _flag}
+
+
+def prompt_list():
+    return [{"name": name, "title": spec["title"], "description": spec["description"],
+             "arguments": [{"name": spec["arg"][0], "description": spec["arg"][1], "required": True}]}
+            for name, spec in PROMPTS.items()]
+
+
+def prompt_get(params):
+    spec = PROMPTS.get(params.get("name"))
+    if not spec:
+        raise KeyError(params.get("name"))
+    value = str((params.get("arguments") or {}).get(spec["arg"][0], "")).strip()
+    if not value:
+        raise ValueError(f"{spec['arg'][0]} is missing")
+    return {"description": spec["description"],
+            "messages": [{"role": "user", "content": {"type": "text", "text": spec["text"].format(value=value)}}]}
 
 
 def respond(cfg, message, version):
@@ -134,13 +206,17 @@ def respond(cfg, message, version):
     if method == "initialize":
         requested = (message.get("params") or {}).get("protocolVersion")
         return {"protocolVersion": requested if requested in VERSIONS else VERSIONS[0],
-                "capabilities": {"tools": {}},
+                "capabilities": {"tools": {}, "prompts": {}},
                 "serverInfo": {"name": "vault-memory", "version": version},
                 "instructions": INSTRUCTIONS}
     if method == "ping":
         return {}
     if method == "tools/list":
         return {"tools": TOOLS}
+    if method == "prompts/list":
+        return {"prompts": prompt_list()}
+    if method == "prompts/get":
+        return prompt_get(message.get("params") or {})
     if method == "tools/call":
         params = message.get("params") or {}
         handler = HANDLERS.get(params.get("name"))
@@ -173,7 +249,10 @@ def serve(cfg, version, stdin=sys.stdin, stdout=sys.stdout):
                 continue
             out = {"jsonrpc": "2.0", "id": message.get("id"), "result": result}
         except KeyError as e:              # before LookupError: KeyError is a subclass of it
-            out = {"jsonrpc": "2.0", "id": message.get("id"), "error": {"code": -32602, "message": f"unknown tool: {e}"}}
+            kind = "prompt" if message.get("method") == "prompts/get" else "tool"
+            out = {"jsonrpc": "2.0", "id": message.get("id"), "error": {"code": -32602, "message": f"unknown {kind}: {e}"}}
+        except ValueError as e:
+            out = {"jsonrpc": "2.0", "id": message.get("id"), "error": {"code": -32602, "message": str(e)}}
         except LookupError as e:
             out = {"jsonrpc": "2.0", "id": message.get("id"), "error": {"code": -32601, "message": f"unknown method: {e}"}}
         stdout.write(json.dumps(out, ensure_ascii=False) + "\n")

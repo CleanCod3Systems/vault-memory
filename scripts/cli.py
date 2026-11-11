@@ -16,6 +16,7 @@
   vault-memory ingest --file F [--source S]       learn from a thread, issue or PR an agent collected
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
   vault-memory review --budget | --calibration    today's check count; does confidence hold up?
+  vault-memory review PATH --flag "reason"        disputed in a conversation: check it first
   vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
   vault-memory bases [--install] [--folder F]     standard Obsidian views (.base) missing in the vault
   vault-memory links [--n 20]                     notes that talk about the same thing and are not linked
@@ -754,6 +755,15 @@ def cmd_refresh(args, cfg):
 def cmd_review(args, cfg):
     """Without PATH: the queue of notes to check against their source. With PATH and
     --verdict: record the check (frontmatter only, with a backup)."""
+    if args.path and args.flag:
+        try:
+            result = RV.flag(cfg, args.path, args.flag)
+        except NT.NoteError as e:
+            print(f"vault-memory review: {e.message}", file=sys.stderr)
+            sys.exit(e.code)
+        print(json.dumps(result, ensure_ascii=False, indent=1) if args.json
+              else f"  flagged  {result['p']}  (first in the queue until it is checked at the source)")
+        return
     if args.path:
         if not args.verdict:
             sys.exit("vault-memory review: recording a check needs --verdict confirmed|outdated|unsure")
@@ -1184,6 +1194,9 @@ def main():
     p.add_argument("--confidence", type=int, help="1-10: how much primary evidence backs it (confirmed needs 8+)")
     p.add_argument("--evidence", help="what was checked and where (required when recording)")
     p.add_argument("--volatility", choices=["live", "stable"], help="how fast the fact changes")
+    p.add_argument("--flag", metavar="REASON",
+                   help="mark PATH as disputed in a conversation (the note is not edited); "
+                        "it goes first in the queue until a review settles it")
     p.add_argument("--n", type=int, help="queue length (default `review.n`, 20)")
     p.add_argument("--budget", type=int, nargs="?", const=0, metavar="MAX",
                    help="only today's budget: review.daily.base plus one per high-priority note, "

@@ -17,8 +17,13 @@ Frontmatter a review writes (only these keys, never the body; a backup is kept):
 
 Each recorded check also adds one line to `<state>/reviews.jsonl`, the log calibration.py
 measures confidence and learned-note precision against.
+
+A flag (`flag`) is lighter than a review: someone said in a conversation that a note may be
+wrong. It never touches the note; it adds a line to `<state>/flags.jsonl` and puts the note at
+the top of the queue until a review is recorded after it.
 """
 import datetime as dt
+import json
 import re
 from collections import defaultdict
 
@@ -86,6 +91,52 @@ def _disputed(cfg, docs, learned):
     return out
 
 
+FLAGS = "flags.jsonl"
+REASON_MAX = 300
+
+
+def flag(cfg, rel, reason, origin="cli"):
+    """Mark a note as disputed in a conversation. The note is not edited: the flag waits in
+    `<state>/flags.jsonl` until a review settles it at the source."""
+    reason = DS.redact(" ".join((reason or "").split()))[:REASON_MAX]
+    if not reason:
+        raise N.NoteError(2, "a flag needs a reason: what was said against the note")
+    rel = rel.strip().lstrip("/")
+    path = (cfg["_vault"] / rel).resolve()
+    if cfg["_vault"].resolve() not in path.parents or path.suffix != ".md" or not path.is_file():
+        raise N.NoteError(2, f"{rel} is not a note of this vault")
+    event = {"t": dt.datetime.now().isoformat(timespec="seconds"), "day": C.today().isoformat(),
+             "p": rel, "reason": reason, "origin": origin}
+    target = C.state_dir(cfg["_vault"]) / FLAGS
+    target.parent.mkdir(parents=True, exist_ok=True)
+    with target.open("a", encoding="utf-8") as handle:
+        handle.write(json.dumps(event, ensure_ascii=False) + "\n")
+    TL.record(cfg["_vault"], {"ev": "flag", "p": rel, "origin": origin}, cfg)
+    return event
+
+
+def open_flags(cfg):
+    """{path: latest flag} for flags no review has settled yet (a review logged at or after
+    the flag settles it, whatever the verdict)."""
+    flags = {}
+    try:
+        lines = (C.state_dir(cfg["_vault"]) / FLAGS).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return flags
+    for line in lines:
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and event.get("p") and event.get("t"):
+            flags[event["p"]] = event
+    for review_event in CB.read(cfg):
+        current = flags.get(review_event["p"])
+        if current and str(review_event.get("t", "")) >= current["t"]:
+            del flags[review_event["p"]]
+    return flags
+
+
 def budget(cfg, high, due, cap=None):
     """How many notes today's run checks: `daily.base`, plus one per high-priority note
     waiting, up to `daily.max` (or `cap`), never more than are due."""
@@ -104,11 +155,14 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
     learned = DS.options(cfg)["folder"].strip("/")
     used = _usage(cfg, int(opts["usage_days"]))
     disputed = _disputed(cfg, docs, learned)
+    flags = open_flags(cfg)
+    for path, event in flags.items():
+        disputed.setdefault(path, f"disputed in a conversation: {event['reason']}")
     coverage = {"notes": 0, "verified_current": 0, "outdated": 0, "unsure": 0, "due": 0}
     rows, high = [], 0
     for d in docs:
         is_learned = d["p"].startswith(learned + "/")
-        if not (FR.reviewable(d, settings) or is_learned):
+        if not (FR.reviewable(d, settings) or is_learned or d["p"] in flags):
             continue
         current_state = FR.state(d, settings)
         if current_state in ("replaced", "expired"):
@@ -123,11 +177,11 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
         age = (today - verified).days if verified else None
         if age is not None and age <= limit:
             coverage["verified_current"] += 1
-        if checked and (today - checked).days < int(opts["gap_days"]):
+        if checked and (today - checked).days < int(opts["gap_days"]) and d["p"] not in flags:
             continue
         score, reasons = 0.0, []
         if d["p"] in disputed:
-            score += 15
+            score += 15 + 10 * (d["p"] in flags)     # a person disputing it outranks a detected contradiction
             reasons.append(disputed[d["p"]])
         if is_learned and not d.get("confidence"):
             score += 10
