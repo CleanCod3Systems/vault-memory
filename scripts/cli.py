@@ -926,14 +926,55 @@ exec python3 "$root/scripts/cli.py" "$@"
 """
 
 
+SHIM_CMD = """@echo off
+rem vault-memory CLI shim (written by `vault-memory install-cli`).
+rem Runs the installed plugin copy. Plugin updates move that copy to a new folder, so it is
+rem looked up on every call: VAULT_MEMORY_HOME, then the active Claude Code profile, then the
+rem copy this shim was written from.
+setlocal
+set "VM_ROOT=%VAULT_MEMORY_HOME%"
+if not defined VM_ROOT for /f "usebackq delims=" %%i in (`"__PY__" "%~dp0vault-memory-locate.py"`) do set "VM_ROOT=%%i"
+if not exist "%VM_ROOT%\\scripts\\cli.py" set "VM_ROOT=__ROOT__"
+"__PY__" "%VM_ROOT%\\scripts\\cli.py" %*
+exit /b %ERRORLEVEL%
+"""
+
+SHIM_LOCATE = """import json, os, pathlib
+profile = pathlib.Path(os.environ.get("CLAUDE_CONFIG_DIR") or (pathlib.Path.home() / ".claude"))
+try:
+    data = json.loads((profile / "plugins" / "installed_plugins.json").read_text(encoding="utf-8"))
+    print(data["plugins"]["vault-memory@vault-memory"][0]["installPath"])
+except Exception:
+    found = sorted(profile.glob("plugins/cache/*/vault-memory/*/scripts/cli.py"))
+    print(found[-1].parent.parent if found else "")
+"""
+
+
+def _default_cli_dir():
+    return str(SC.shim_path(SC.system()).parent)
+
+
 def cmd_install_cli(args):
-    target = Path(args.dir).expanduser() / "vault-memory"
-    target.parent.mkdir(parents=True, exist_ok=True)
-    target.write_text(SHIM.replace("__ROOT__", str(ROOT)), encoding="utf-8")
-    target.chmod(0o755)
+    folder = Path(args.dir).expanduser()
+    folder.mkdir(parents=True, exist_ok=True)
+    if os.name == "nt":
+        target = folder / "vault-memory.cmd"
+        with open(target, "w", encoding="utf-8", newline="\r\n") as handle:  # Path.write_text has no newline= before 3.10
+            handle.write(SHIM_CMD.replace("__PY__", sys.executable).replace("__ROOT__", str(ROOT)))
+        (folder / "vault-memory-locate.py").write_text(SHIM_LOCATE, encoding="utf-8")
+    else:
+        target = folder / "vault-memory"
+        target.write_text(SHIM.replace("__ROOT__", str(ROOT)), encoding="utf-8")
+        target.chmod(0o755)
     print(f"  written {target}")
-    if str(target.parent) not in os.environ.get("PATH", "").split(os.pathsep):
-        print(f"  {target.parent} is not on PATH: add it to your shell profile")
+    if str(folder) not in os.environ.get("PATH", "").split(os.pathsep):
+        if os.name == "nt":
+            print(f"  {folder} is not on PATH. To add it for your user (then open a new terminal):")
+            print('    [Environment]::SetEnvironmentVariable("Path", '
+                  f'[Environment]::GetEnvironmentVariable("Path", "User") + ";{folder}", "User")')
+            print("  (PowerShell; or Settings > System > About > Advanced system settings > Environment Variables)")
+        else:
+            print(f"  {folder} is not on PATH: add it to your shell profile")
 
 
 # ──────────────────────────────────────────────────────────────────── main
@@ -1097,7 +1138,7 @@ def main():
     p.add_argument("--apply", action="store_true")
     p.set_defaults(fn=cmd_migrate)
     p = sub.add_parser("install-cli", help="write the `vault-memory` command to a folder on PATH")
-    p.add_argument("--dir", default=str(Path.home() / ".local" / "bin"))
+    p.add_argument("--dir", default=_default_cli_dir())
     p.set_defaults(fn=cmd_install_cli, no_cfg=True)
 
     args = parser.parse_args()

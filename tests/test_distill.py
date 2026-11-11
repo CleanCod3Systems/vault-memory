@@ -143,14 +143,16 @@ class TestSessions(Env):
         self.assertEqual([s["sid"] for s in DS.read_sessions(self.cfg(), DAY)], ["s-day"])
 
     def test_skips_excluded_cwd_few_prompts_and_subagent_files(self):
-        self.transcript("s-excl", [user("a", DAY, sid="s-excl", cwd="/secret/proj/x"),
-                                   user("b", DAY, 12, 5, sid="s-excl", cwd="/secret/proj/x")])
+        secret = str(Path("/secret/proj"))   # native separators: a transcript cwd has them too
+        inside = secret + os.sep + "x"
+        self.transcript("s-excl", [user("a", DAY, sid="s-excl", cwd=inside),
+                                   user("b", DAY, 12, 5, sid="s-excl", cwd=inside)])
         self.transcript("s-one", [user("only one", DAY, sid="s-one")])
         self.transcript("s-ok", [user("a", DAY, sid="s-ok"), user("b", DAY, 12, 5, sid="s-ok")])
         sub = self.config_dir / "projects" / "-work-billing-api" / "s-ok" / "subagents"
         sub.mkdir(parents=True)
         (sub / "agent-1.jsonl").write_text(json.dumps(user("a", DAY, sid="x")) + "\n", encoding="utf-8")
-        cfg = self.cfg(exclude_paths=["/secret/proj"], min_prompts=2)
+        cfg = self.cfg(exclude_paths=[secret], min_prompts=2)
         self.assertEqual([s["sid"] for s in DS.read_sessions(cfg, DAY)], ["s-ok"])
 
     def test_truncates_keeping_the_end_and_redacts(self):
@@ -480,10 +482,10 @@ class TestProviders(Env):
             exe.parent.mkdir(parents=True)
             exe.write_text("")
             with mock.patch.object(DS.shutil, "which", return_value=None), \
-                    mock.patch.dict("os.environ", {"HOME": home}):
+                    mock.patch.dict("os.environ", {"HOME": home, "USERPROFILE": home}):  # Windows reads USERPROFILE
                 self.assertEqual(DS._claude("claude"), str(exe))
             with mock.patch.object(DS.shutil, "which", return_value=None), \
-                    mock.patch.dict("os.environ", {"HOME": home + "/nobody"}):
+                    mock.patch.dict("os.environ", {"HOME": home + "/nobody", "USERPROFILE": home + "/nobody"}):
                 self.assertTrue(DS._claude("claude").endswith("claude"))
 
     def test_claude_cli_command_stdin_env_and_result(self):
