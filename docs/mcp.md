@@ -1,8 +1,13 @@
 # vault-memory as an MCP server
 
-`vault-memory mcp` exposes the same engine over stdio (JSON-RPC 2.0, stdlib only) with four
-tools: `recall`, `read_passage`, `write_note` and `doctor`. It is for clients without a shell or
-hooks. In **Claude Code it is not needed**: the plugin hook and the `vault-memory` command cover
+`vault-memory mcp` exposes the same engine over stdio (JSON-RPC 2.0, stdlib only) with five
+tools: `recall` (results carry `verified`, `confidence` and `source`, so answers say how sure
+they are), `read_passage`, `write_note`, `doctor` and `flag_for_review` (the user says a note
+may be wrong: it is not edited, it goes first in the review queue). Two prompts turn a chat
+into a conversation with the memory: `ask` (answer only from the notes, citing each one) and
+`discuss` (weigh a claim against the notes, hold a position unless new evidence appears, flag
+what turns out disputed). Clients that show MCP prompts list them in their prompt menu. It is
+for clients without a shell or hooks. In **Claude Code it is not needed**: the plugin hook and the `vault-memory` command cover
 the same without adding tool definitions to every session.
 
 The command is the shim written by `vault-memory install-cli` (`~/.local/bin/vault-memory`),

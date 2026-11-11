@@ -62,7 +62,13 @@ returns the notes worth checking now, most urgent first, each with its reasons:
 3. used: read, or suggested by the hook, in the last `review.usage_days` (30);
 4. past their review interval; `live` notes get a little extra weight.
 
-A note checked in the last `review.gap_days` (7) waits, whatever the verdict. Checking needs
+A person can also dispute a note in a conversation: `vault-memory review "PATH" --flag
+"<what was said>"` (MCP `flag_for_review`) writes a line to `<state>/flags.jsonl`, never the
+note, and puts it first in the queue (above a detected contradiction) until a review is
+recorded after the flag, whatever its verdict.
+
+A note checked in the last `review.gap_days` (7) waits, whatever the verdict, unless it was
+flagged after that check. Checking needs
 the real sources, so an agent does it with the `verify` skill and records the result:
 
 ```bash
