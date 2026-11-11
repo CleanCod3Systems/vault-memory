@@ -1,5 +1,33 @@
 # Changelog
 
+## 0.7.0 — 2026-11-11
+
+- Recall matches a note's `aliases`, its `key` and an optional `keys:` list of questions it
+  answers, as if they were its title (`recall.expand_keys`, on).
+- Recall resolves time expressions in Spanish and English ("ayer", "last week", "en octubre",
+  `2026-10-05`) to a date range and boosts notes dated in it, without filtering
+  (`recall.time_boost`, 0.5; 0 = off). Index format v5: old indexes rebuild on the next recall.
+- Every `review` check is logged in `<state>/reviews.jsonl` (no note text).
+  `vault-memory review --calibration [--json]` shows how often a check at confidence 10, 9, 8
+  and ≤7 held up at the next review, with a Wilson 95% interval, plus learned-note precision.
+- `distill.auto: "earned"`: learned notes are written directly only while the Wilson lower
+  bound of learned-note precision is ≥ `distill.earned_min_precision` (0.8) over ≥
+  `distill.earned_min_audits` (20) audits; otherwise the inbox. `distill` says which and why.
+- `vault-memory review --budget [MAX]` and `review.daily` (`base` 4, `max` 8): a scheduled check
+  covers more while contradicted or never-audited learned notes wait.
+- Distill providers `openai-compat` (OpenAI, LM Studio, vLLM, LiteLLM; JSON schema with a
+  `json_object` fallback) and `ollama` (native structured outputs). `doctor` reports whether the
+  provider is ready, without network calls.
+- `distill.sources`: also learn from Codex CLI and Gemini CLI sessions, and from your pull
+  requests through `gh` (`gh-prs`, `distill.gh_repos`). Default unchanged (`claude-code`).
+  `distill --sources a,b` runs only some sources once.
+- `vault-memory ingest --file item.json|item.md|-`: learn from a thread, issue or PR an agent
+  collected, with the same redaction, quote and support checks; candidates carry `origin` and
+  `url`. New `ingest` skill.
+- `schedule` on Windows (Task Scheduler) and, on Linux, a systemd user timer with
+  `Persistent=true` (crontab as fallback). `install-cli` writes a `.cmd` shim on Windows.
+- CI runs the tests on Linux, macOS and Windows (Python 3.9 and 3.13).
+
 ## 0.6.0 — 2026-11-11
 
 - Safe writes next to Obsidian: `note --update`, `review` and distill's renewal re-read the
