@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+- Daily summary (`scripts/today.py`, `hooks/today.py`, SessionStart `startup`): once per local
+  day, interactive sessions only (`today.entrypoints`, default `cli`), up to 8 lines with what is
+  next, what is waiting on someone, what is due soon and what was learned yesterday. Also
+  `vault-memory today [--all] [--json]`. Off until `today.type` is set; field names come from the
+  config, so task notes keep their own frontmatter.
+- Learning from sessions (`scripts/distill.py`, `vault-memory distill`, and `refresh` when
+  `distill.enabled`): redacts yesterday's Claude Code sessions, proposes at most 3 cross-project
+  facts per session, keeps only those quoted verbatim, confirmed by a second model check and
+  free of sensitive data. Inbox for review by default (`distill.auto: false`); with `auto` it
+  writes through `vault-memory note` with `expires`, and a learned note that gets read is
+  confirmed. Providers `claude-cli` and `anthropic-api`. Off by default.
+- `VAULT_MEMORY_DISABLE=1` turns every hook off (set on the model calls distill makes).
+
 ## 0.2.0 — 2026-11-10
 
 - `hook.mode` (`all` default, `first`, `off`): `first` searches only the first prompt of a session

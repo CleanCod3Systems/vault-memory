@@ -19,6 +19,17 @@ _Avoid_: guard, interceptor
 **Hook mode**:
 When automatic recall runs on a prompt: on every prompt, only on the first one of a session (or one that carries an ID or ticket), or never.
 
+**Daily summary**:
+A few lines, once a day, with what is next, what is waiting on someone and what is due soon, taken from the user's task notes.
+_Avoid_: digest, standup
+
+**Learned note**:
+A note written by the model from the user's sessions, not by the user. It carries its origin and an expiry date until someone reads it, which confirms it.
+_Avoid_: auto note, memory candidate
+
+**Inbox**:
+Where learned notes wait for review when automatic learning is off. It lives outside the vault.
+
 **Installation config**:
 The values one user's vault puts in `config.json` (tool names, domain words, thresholds). The product ships the mechanism with neutral defaults; everything specific to a person or company lives here.
 _Avoid_: user settings, profile

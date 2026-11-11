@@ -30,6 +30,8 @@ language**; search works over notes written in English or Spanish (others: `stem
 | **Recall** | Search by text, by ID (order, case, record) and by ticket key. Returns the exact paragraph, not the whole file. Refreshes itself when the vault changed |
 | **Automatic recall** (Claude Code) | A hook leaves up to 3 pointers to relevant notes on each prompt — and stays silent on chat ("ok, go ahead", "thanks"). `hook.mode` in `config.json`: `all` (default, every prompt), `first` (the first prompt of the session, or any prompt with an ID or ticket) or `off` |
 | **Gate before external searches** (Claude Code) | Before a tool listed in `gate.tools` (a database, logs, chat, web), one line points to a current note that already answers it. Never blocks. Off until configured: `"gate": {"tools": {"mcp__db__query": "reason", "mcp__logs__": "query"}}` maps a tool name or prefix to the `tool_input` field used as the query (`"*"` joins every string). The plugin runs it on MCP tools, `WebFetch` and `WebSearch`; to cover a `Bash` command, add a `PreToolUse` hook with matcher `Bash` running `hooks/gate.py` in your own settings |
+| **Daily summary** (Claude Code) | At the first session of each day, a few lines with what is next, what is waiting on someone and what is due soon, from your task notes. `vault-memory today [--all]` any time. Off until `today.type` is set: `"today": {"type": "task", "status_field": "status", "groups": {"next": ["next"], "waiting": ["waiting"]}, "priority_field": "priority", "due_field": "due", "waiting_field": "waiting_on"}` |
+| **Learning from sessions** (opt-in, uses a model) | `vault-memory distill` (and `refresh`, when `distill.enabled`) reads yesterday's Claude Code sessions, redacts emails, phones, cards and keys, and asks a small model for at most 3 cross-project facts per session. Each fact must quote the session verbatim and pass a second "is this supported?" check; anything still sensitive is dropped. `distill.auto: false` (default) leaves them in `.vault-memory/inbox/` for review; `true` writes them with `vault-memory note` (update or replace instead of duplicating), with `expires` 90 days out. A learned note that gets read is confirmed (`verified`, no `expires`); one nobody reads expires and ranks lower. `exclude_paths` keeps whole folders out. Provider: `claude-cli` (your Claude Code login, `claude -p`) or `anthropic-api` (`ANTHROPIC_API_KEY`) |
 | **Freshness** | Replaced, expired and unverified notes rank lower; two current notes about the same fact are reported as a contradiction |
 | **Safe writing** | `vault-memory note` validates the contract and refuses duplicates: it makes you update or replace instead |
 | **Contract** | Predictable frontmatter is what makes everything else possible. `doctor` says how much is missing; `fix` fills it **without overwriting anything and without moving files** |
@@ -100,6 +102,8 @@ vault-memory doctor            # health, read only
 vault-memory fix [--apply]     # fill missing frontmatter (dry run without --apply)
 vault-memory refresh           # index + patterns + related notes + panel
 vault-memory usage             # is memory helping? pointers used, missed recall, gaps
+vault-memory today [--all]     # what is next, waiting and due soon (config `today`)
+vault-memory distill [--day D] [--dry-run]   # learn from yesterday's sessions (config `distill`)
 vault-memory eval [--hook]     # measure recall against your own questions
 vault-memory migrate [--apply] # vaults made by obsidian-cerebro (Spanish names)
 ```
@@ -131,9 +135,13 @@ Freshness fields: [docs/freshness.md](docs/freshness.md).
 
 ## What leaves your machine
 
-Nothing. The index, telemetry (`.vault-memory/telemetry.jsonl`) and panel live inside the
-vault's state folder. The panel embeds note titles and excerpts: open it locally, never
-publish it.
+Nothing, unless you turn on `distill`. The index, telemetry (`.vault-memory/telemetry.jsonl`)
+and panel live inside the vault's state folder. The panel embeds note titles and excerpts: open
+it locally, never publish it.
+
+With `distill.enabled`, the redacted text of your sessions (your prompts and the assistant's
+final answers, nothing from tool calls) goes to the model provider you chose, once a day.
+With `claude-cli` that is the same provider your sessions already use.
 
 ## Development
 
