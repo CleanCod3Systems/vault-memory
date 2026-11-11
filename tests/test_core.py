@@ -140,6 +140,17 @@ class TestSchedule(unittest.TestCase):
         self.assertNotIn("/plugins/cache/", xml, "never the versioned plugin folder")
 
 
+class TestHookVault(unittest.TestCase):
+    def test_disable_env_turns_every_hook_off(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as vault:
+            with mock.patch.dict("os.environ", {"VAULT_MEMORY_VAULT": vault}, clear=False):
+                with mock.patch.object(C, "_vault_sources", lambda: iter([("VAULT_MEMORY_VAULT", vault)])):
+                    self.assertEqual(C.hook_vault(), vault)
+                    with mock.patch.dict("os.environ", {"VAULT_MEMORY_DISABLE": "1"}):
+                        self.assertIsNone(C.hook_vault())
+
+
 class TestEval(unittest.TestCase):
     def run_eval(self, *extra):
         return subprocess.run([sys.executable, "-B", str(SCRIPTS / "cli.py"), "--vault", str(EXAMPLE),

@@ -169,7 +169,10 @@ def _vault_sources():
 
 def hook_vault():
     """Vault for the hooks: same order as resolve_vault without --vault or cwd search.
-    None if there is none (the hook does nothing)."""
+    None if there is none (the hook does nothing), or with VAULT_MEMORY_DISABLE=1 (set by
+    distill on the model calls it makes, so those sessions never touch memory)."""
+    if os.environ.get("VAULT_MEMORY_DISABLE") == "1":
+        return None
     for _, value in _vault_sources():
         if value and Path(value).expanduser().is_dir():
             return str(Path(value).expanduser())
