@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.3.1 — 2026-11-11
+
+- distill never learns the same day twice (`--force` to redo one) and catches up the days it
+  missed since its last run (machine off, scheduler failed), up to `distill.catch_up_days` (7).
+  The first run only reads yesterday.
+- Before saving, the model compares each fact with the closest current notes: `same` is
+  dropped, `adds` is appended to a learned note, `contradicts` replaces a learned note. A note
+  the person wrote is never edited or replaced: the learned note links to it instead. Reworded
+  duplicates used to slip past the text-similarity check.
+- Learned notes that expire without being read move to `_archive/` (`distill.archive`): out of
+  default searches, never deleted. The proposal prompt asks for absolute dates.
+- The `recall` skill answers "what do I have today?" with `vault-memory today` and cites learned
+  notes as such.
+
 ## 0.3.0 — 2026-11-11
 
 - Daily summary (`scripts/today.py`, `hooks/today.py`, SessionStart `startup`): once per local
