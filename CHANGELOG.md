@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.8.0 — 2026-11-11
+
+- Talk with your memory: skill `ask` (`/vault-memory:ask <question or claim>`, or "ask my
+  memory…", "let's discuss…"). Ask mode answers only from the notes, each claim with its note
+  and how verified it is; discuss mode lays out the evidence for and against, holds a position
+  unless new evidence appears and flags what turns out disputed.
+- `vault-memory review PATH --flag "reason"`: a note disputed in a conversation goes first in
+  the review queue (above a detected contradiction) until a review is recorded after it. The
+  note is never edited; the flag lives in `<state>/flags.jsonl`, redacted.
+- MCP: prompts `ask` and `discuss`, tool `flag_for_review`, and `recall` results carry
+  `verified`, `confidence`, `checked` and `source` so desktop chat answers say how sure they are.
+- CI is green again: the gate tests build the example index themselves (a fresh checkout has
+  none), and Python 3.9 runs on Ubuntu 24.04 (setup-python has no 3.9 for Ubuntu 26.04).
+
 ## 0.7.0 — 2026-11-11
 
 - Recall matches a note's `aliases`, its `key` and an optional `keys:` list of questions it
