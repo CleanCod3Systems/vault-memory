@@ -14,6 +14,7 @@
   vault-memory modules [--on X] [--off Y]         what is active; turn on and off
   vault-memory migrate [--apply]                  rewrite a legacy (Spanish) vault to the current names
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
+  vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
   vault-memory install-cli                        put `vault-memory` on the PATH
 
 No network, no model, no tokens. Python 3.9+, no dependencies.
@@ -37,6 +38,7 @@ ROOT = HERE.parent            # plugin root: standard/ lives next to scripts/
 import contract as CT  # noqa: E402
 import core as C  # noqa: E402
 import distill as DS  # noqa: E402
+import bench as BN  # noqa: E402
 import evaluate as EV  # noqa: E402
 import freshness as FR  # noqa: E402
 import indexer as IX  # noqa: E402
@@ -440,7 +442,8 @@ def cmd_recall(args, cfg):
         query_terms = list(C.tokens(args.query, keep_stopwords=True))
         if os.environ.get("VAULT_MEMORY_ORIGIN") != "hook":   # the hook records its own
             TL.record(cfg["_vault"], {"ev": "recall", "origin": "cli", "q": args.query[:200],
-                                      "n": len(results), "top": round(results[0][0], 1) if results else 0}, cfg)
+                                      "n": len(results), "top": round(results[0][0], 1) if results else 0,
+                                      "ps": [d["p"] for _, d in results[:3]]}, cfg)
     if args.brief:
         # One line per note with the short passage: often enough to answer without reading
         # the whole note (the biggest token saving after not searching elsewhere).
@@ -686,6 +689,12 @@ def cmd_refresh(args, cfg):
             result = PT.build(cfg, docs, link_graph, coverage)
     idx = json.loads((cfg["_state"] / "index.json").read_text(encoding="utf-8"))
     print(f"  related.json   {RC.write_related(cfg, idx)} notes with neighbors")
+    try:
+        measured = BN.run(cfg)
+        print(f"  bench.json     {measured['cases']} cases · MRR {measured['mrr']:.3f} · "
+              f"suggestions used this week {measured['week']['pct_read']}%")
+    except Exception as e:                     # measuring must never break the refresh
+        print(f"  bench: {e}")
     target = None
     if mods["panel"]:
         target, count = PN.build(cfg, docs, link_graph, coverage, result)
@@ -730,6 +739,40 @@ def cmd_review(args, cfg):
     for i, row in enumerate(result["queue"], 1):
         print(f"  {i:>2}. [{row['score']:>4}] {row['p']}")
         print(f"      {'; '.join(row['reasons'])}")
+
+
+def cmd_bench(args, cfg):
+    """Recall measured on this vault's own history; --tune tries parameters, --apply keeps the
+    best only when the gain is statistically clear."""
+    result = BN.run(cfg, days=args.days, do_tune=args.tune or args.apply)
+    tuned = result.get("tune")
+    if args.apply and tuned and tuned["clear"]:
+        result["applied"] = str(BN.apply(cfg, tuned["best"]))
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        return
+    low, high = result["mrr_ci"]
+    print(f"\n  recall on your own history · last {result['days']} days\n")
+    print(f"  cases      {result['cases']}  (mined from use {result['mined']} · written by hand {result['hand']})")
+    print(f"  hit@1      {result['hit1']:.0%}    hit@3 {result['hit3']:.0%}")
+    print(f"  MRR@10     {result['mrr']:.3f}   95% interval [{low:.3f}, {high:.3f}]")
+    week, cov = result["week"], result["verified"]
+    print(f"  this week  {week['pointers_read']} of {week['pointers']} suggestions used ({week['pct_read']}%)")
+    print(f"  verified   {cov['verified_current']} of {cov['notes']} reviewable notes current · {cov['due']} due")
+    if result["misses"]:
+        print("\n  not found in the top 10:")
+        for query in result["misses"][:6]:
+            print(f"    {' '.join(query.split())}")
+    if tuned:
+        best, cur = tuned["best"], tuned["current"]
+        print(f"\n  tune ({tuned['tried']} variants): current MRR {cur['mrr']:.3f} → best {best['mrr']:.3f} "
+              f"with k1 {best['k1']} · b {best['b']} · title_bonus {best['title_bonus']} · prior_weight {best['prior_weight']}")
+        print(f"  gain on held-out cases {tuned['held_out_gain']:+.3f}, 95% interval "
+              f"[{tuned['gain_ci'][0]:+.3f}, {tuned['gain_ci'][1]:+.3f}] → "
+              + ("clear: worth applying" if tuned["clear"] else
+                 f"not clear (needs a gain above 0 and {BN.MIN_CASES}+ cases): keep the current values"))
+        if result.get("applied"):
+            print(f"  applied to {result['applied']}")
 
 
 def cmd_today(args, cfg):
@@ -951,6 +994,12 @@ def main():
     p.add_argument("--all", action="store_true", help="every open item, not only the top ones")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_today)
+    p = sub.add_parser("bench", help="does recall find what gets used? measured on your own history")
+    p.add_argument("--days", type=int, default=BN.DAYS, help="history window (default 120)")
+    p.add_argument("--tune", action="store_true", help="try recall parameters against the cases")
+    p.add_argument("--apply", action="store_true", help="tune and write the best only if the gain is clear")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_bench)
     p = sub.add_parser("review", help="notes to check against their source, and record a check")
     p.add_argument("path", nargs="?", help="note to record a check for (relative to the vault)")
     p.add_argument("--verdict", choices=RV.VERDICTS)

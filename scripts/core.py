@@ -109,7 +109,10 @@ CONFIG_DEF = {
                # section titles and the folders of its path.
                "tag_weight": 3, "h2_weight": 2, "path_weight": 1,
                # Bonus for the fraction of the query that appears in the note's name/title.
-               "title_bonus": 8},
+               "title_bonus": 8,
+               # BM25 saturation and length normalization, and how much past use lifts a note
+               # (0 = off). `vault-memory bench --tune` measures them against your own cases.
+               "k1": 1.4, "b": 0.72, "prior_weight": 0.0},
     "hook": {},               # thresholds and regexes of the UserPromptSubmit hook (see hookfilter.py)
     # Freshness (docs/freshness.md): which types are reviewed, after how many days an
     # unverified note is reported, and how much a replaced/expired note weighs in recall.
@@ -240,14 +243,24 @@ def load_config(vault):
 CLOSED, OBSOLETE, HIGH_SEVERITY, SIMILAR_SKIP = set(), set(), set(), set()
 FRESHNESS = dict(CONFIG_DEF["freshness"])
 TITLE_BONUS = CONFIG_DEF["recall"]["title_bonus"]
+BM25_K1, BM25_B = CONFIG_DEF["recall"]["k1"], CONFIG_DEF["recall"]["b"]
+PRIOR_WEIGHT, PRIOR = 0.0, {}
 _STEMMER, _IRREGULAR_EXTRA, _STOP_EXTRA = "en", {}, set()
 
 
 def configure(cfg):
     global CLOSED, OBSOLETE, HIGH_SEVERITY, SIMILAR_SKIP, _STEMMER, _IRREGULAR_EXTRA, _STOP_EXTRA
-    global FRESHNESS, TITLE_BONUS
+    global FRESHNESS, TITLE_BONUS, BM25_K1, BM25_B, PRIOR_WEIGHT, PRIOR
     FRESHNESS = cfg["freshness"]
     TITLE_BONUS = float(cfg["recall"].get("title_bonus", 8))
+    BM25_K1, BM25_B = float(cfg["recall"].get("k1", 1.4)), float(cfg["recall"].get("b", 0.72))
+    PRIOR_WEIGHT, PRIOR = float(cfg["recall"].get("prior_weight", 0) or 0), {}
+    if PRIOR_WEIGHT and cfg.get("_state"):
+        # How often each note was read lately (written by `refresh` and `bench`).
+        try:
+            PRIOR = json.loads((Path(cfg["_state"]) / "usage.json").read_text(encoding="utf-8")).get("reads", {})
+        except (OSError, ValueError):
+            PRIOR = {}
     CLOSED = {norm(x) for x in cfg["statuses"]["closed"]}
     OBSOLETE = {norm(x) for x in cfg["statuses"]["obsolete"]}
     HIGH_SEVERITY = {norm(x) for x in cfg["severities"]["high"]}

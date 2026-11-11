@@ -15,7 +15,6 @@ import core as C
 import freshness as FR
 import indexer as IX
 
-K1, B = 1.4, 0.72
 RE_TICKET = re.compile(r"^[A-Za-z]{2,6}-\d{1,6}$")
 
 
@@ -84,6 +83,7 @@ def stats_of(idx):
 
 
 def bm25(d, query_terms, doc_freq, total, average, prefix=True):
+    k1, b = C.BM25_K1, C.BM25_B
     doc_length, score = length(d), 0.0
     for term in query_terms:
         freq = d["tf"].get(term, 0)
@@ -92,12 +92,14 @@ def bm25(d, query_terms, doc_freq, total, average, prefix=True):
         if not freq:
             continue
         idf = math.log(1 + (total - doc_freq.get(term, 1) + 0.5) / (doc_freq.get(term, 1) + 0.5))
-        score += idf * (freq * (K1 + 1)) / (freq + K1 * (1 - B + B * doc_length / average))
+        score += idf * (freq * (k1 + 1)) / (freq + k1 * (1 - b + b * doc_length / average))
     return score
 
 
 def search(idx, query, note_type=None, area=None, status=None, system=None, since=None,
-           family=None, include_archive=False, n=8, include_expired=False):
+           family=None, include_archive=False, n=8, include_expired=False, prior=None):
+    """`prior`: reads per path (default the vault's `usage.json` when `recall.prior_weight` > 0)."""
+    prior = C.PRIOR if prior is None else prior
     docs = [d for d in idx["docs"] if include_archive or not d["archived"]]
     # A template is never the answer to anything: it contains {{title}} and sample words that
     # compete with real notes. It only shows up when asked for by type.
@@ -170,6 +172,9 @@ def search(idx, query, note_type=None, area=None, status=None, system=None, sinc
         # exactly what is being searched). An exact ID is not penalized.
         if score > 0 and not exact and not include_expired:
             score *= FR.factor(d)
+        # Notes that were useful before get a small, bounded lift (log of past reads).
+        if score > 0 and not exact and C.PRIOR_WEIGHT and prior.get(d["p"]):
+            score *= 1 + C.PRIOR_WEIGHT * math.log1p(prior[d["p"]])
         if score > 0:
             out.append((score, d))
     out.sort(key=lambda x: (-x[0], x[1]["p"]))
@@ -177,7 +182,7 @@ def search(idx, query, note_type=None, area=None, status=None, system=None, sinc
         # It looked like a ticket or an ID but it is not one in this vault (or no prefixes are
         # configured). Before saying "nothing", search it as text.
         return search(idx, " ".join(re.split(r"[-_]", query)), note_type, area, status, system,
-                      since, family, include_archive, n, include_expired)
+                      since, family, include_archive, n, include_expired, prior)
     return out[:n]
 
 

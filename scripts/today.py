@@ -10,6 +10,7 @@ so a vault with Spanish field names works the same.
 """
 import datetime as dt
 import json
+from pathlib import Path
 
 import core as C
 import legacy as LG
@@ -148,6 +149,23 @@ def _distill_line(event):
     return f"distill {event.get('day', '')}: " + (", ".join(parts) if parts else "nothing new")
 
 
+def _memory_line(cfg, today):
+    """Mondays: last week's "did memory help?" numbers, from `bench.json` (written by refresh)."""
+    if today.weekday() != 0:
+        return ""
+    try:
+        data = json.loads((Path(cfg["_state"]) / "bench.json").read_text(encoding="utf-8"))
+        generated = dt.date.fromisoformat(data["generated"])
+    except (OSError, ValueError, KeyError, TypeError):
+        return ""
+    if (today - generated).days > 3:
+        return ""
+    week, cov = data.get("week") or {}, data.get("verified") or {}
+    return (f"memory last week: {week.get('pointers_read', 0)}/{week.get('pointers', 0)} suggestions used · "
+            f"recall MRR {data.get('mrr', 0):.2f} on {data.get('cases', 0)} cases · "
+            f"{cov.get('verified_current', 0)}/{cov.get('notes', 0)} notes verified")
+
+
 def render(cfg, all_items=False, today=None):
     """The summary as text. Deterministic for a given `today`."""
     opts = options(cfg)
@@ -188,6 +206,9 @@ def render(cfg, all_items=False, today=None):
         lines.append("due soon: " + "; ".join(text) + more)
     if data["distill"]:
         lines.append(_distill_line(data["distill"]))
+    memory = _memory_line(cfg, today)
+    if memory:
+        lines.append(memory)
     if all_items:
         return "\n".join(lines)
 
