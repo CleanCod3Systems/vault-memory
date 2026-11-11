@@ -1,6 +1,6 @@
 ---
 name: recall
-description: 'Search the Obsidian vault (the user memory) before searching anywhere else, and save new facts with vault-memory note. Use for "did this happen before?", "what do we know or decide about X?", an ID or ticket, "search my notes", or when something worth remembering was learned.'
+description: 'Search the Obsidian vault (the user memory) before searching anywhere else, and save new facts with vault-memory note. Use for "did this happen before?", "what do we know or decide about X?", "what do I have today?", "what is pending?", an ID or ticket, "search my notes", or when something worth remembering was learned.'
 ---
 
 # recall
@@ -25,6 +25,17 @@ vault-memory recall "<kw>" --type incident|decision|runbook --n 5
 - `state` of each result: `replaced` (see `replaced_by`) or `expired` → do not answer from it
   without saying so.
 - No match → say so ("it is not in the vault") and only then search elsewhere.
+
+## Today and pending work
+```bash
+vault-memory today --all     # what is next, waiting on someone, due soon (from task notes)
+vault-memory today --json    # the same, structured
+```
+- For "what do I have today / what is pending / who am I waiting on". Off when the config has
+  no `today` block: then say so and search task notes with `recall --type <task type>`.
+- Notes under the `distill.folder` with `source: distill …` were learned from past sessions by
+  a model: cite them as such ("learned on <date>"), and prefer a note the user wrote when both
+  answer.
 
 ## Save memory
 ```bash
