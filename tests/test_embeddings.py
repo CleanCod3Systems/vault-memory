@@ -266,7 +266,9 @@ class TestRerank(Base):
         self.ollama(base_url=dead_url())
         self.assertEqual(EM.rerank(self.cfg, self.QUERY, self.plain), (self.plain, False))
         errors = self.events("rerank_error")
-        self.assertEqual([(e["reason"], e["origin"]) for e in errors], [("connection", "cli")])
+        # A refused connection: Windows retries it until the timeout, the others refuse at once.
+        self.assertEqual([e["origin"] for e in errors], ["cli"])
+        self.assertIn(errors[0]["reason"], ("connection", "timeout"))
         self.assertNotIn("q", errors[0])
 
     def test_wrong_dimension_falls_back(self):
