@@ -56,7 +56,8 @@ class TestMCP(unittest.TestCase):
         self.assertIn("user", result["instructions"])
         self.call("notifications/initialized", notification=True)
         names = {t["name"] for t in self.call("tools/list")["result"]["tools"]}
-        self.assertEqual(names, {"recall", "read_passage", "write_note", "doctor", "flag_for_review"})
+        self.assertEqual(names, {"recall", "read_passage", "write_note", "doctor", "flag_for_review",
+                                 "save_answer"})
 
         rows, error = self.tool("recall", {"q": "duplicate refund"})
         self.assertFalse(error)
@@ -114,6 +115,28 @@ class TestMCP(unittest.TestCase):
         self.assertEqual(json.loads(lines[-1])["p"], rows[0]["p"])
         _, error = self.tool("flag_for_review", {"p": "../outside.md", "reason": "x"})
         self.assertTrue(error)
+
+    def test_save_answer_writes_the_note_only_with_enough_cites(self):
+        result = self.call("initialize", {"protocolVersion": "2025-06-18"})["result"]
+        self.assertIn("save_answer", result["instructions"])
+        refund = "Atlas/Incidents/Inc - 2026-06-18 - Duplicate refund to customer.md"
+        queues = "Atlas/Decisions/Decision - 2026-02-10 - Use queues for refunds.md"
+        saved, error = self.tool("save_answer", {"question": "How do we avoid paying a refund twice?",
+                                                 "answer": "A queue and an idempotency key.",
+                                                 "cites": [refund, queues]})
+        self.assertFalse(error)
+        text = (self.vault / saved["p"]).read_text(encoding="utf-8")
+        self.assertTrue(saved["p"].startswith("Memory/answers/"))
+        self.assertIn("source: ask 2026-10-01", text)
+        self.assertNotIn("verified:", text)
+        response = self.call("tools/call", {"name": "save_answer", "arguments": {
+            "question": "Another question", "answer": "Another answer.", "cites": [refund]}})
+        self.assertEqual(response["error"]["code"], -32602)
+        duplicate, error = self.tool("save_answer", {"question": "How do we avoid paying a refund twice?",
+                                                     "answer": "A queue and an idempotency key.",
+                                                     "cites": [refund, queues]})
+        self.assertTrue(error)
+        self.assertEqual(duplicate["code"], 3)
 
 
 if __name__ == "__main__":

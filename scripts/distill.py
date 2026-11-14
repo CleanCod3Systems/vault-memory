@@ -131,8 +131,9 @@ def _ref(session):
 
 
 def _provenance(session):
-    """Frontmatter that says where a note came from, for sources other than Claude Code."""
-    return {k: session[k] for k in ("origin", "url") if session.get(k)}
+    """Frontmatter that says where a note came from, for sources other than Claude Code
+    (`capture`: a link to the capture it was ingested from, its evidence)."""
+    return {k: session[k] for k in ("origin", "url", "capture") if session.get(k)}
 
 
 # ───────────────────────────────────────────────────────────── prompts and schemas
@@ -611,15 +612,17 @@ def run(cfg, day=None, provider=None, dry_run=False, force=False):
 
 
 # ───────────────────────────────────────────────────────────── archive what expired unused
-def archive_expired(cfg, today=None):
+def archive_expired(cfg, today=None, folder=None, source="distill"):
     """Learned notes (source `distill…`) whose `expires` passed without anyone reading them
-    move to `<archive>/<folder>/`: out of default searches, never deleted."""
+    move to `<archive>/<folder>/`: out of default searches, never deleted. `folder` and
+    `source` let saved answers (answer.py) expire the same way."""
     opts = options(cfg)
-    folder = cfg["_vault"] / opts["folder"].strip("/")
+    relative = (folder or opts["folder"]).strip("/")
+    folder = cfg["_vault"] / relative
     if not folder.is_dir():
         return 0
     today = (today or C.today()).isoformat()
-    target = cfg["_vault"] / opts["archive"].strip("/") / opts["folder"].strip("/")
+    target = cfg["_vault"] / opts["archive"].strip("/") / relative
     moved = 0
     for path in sorted(folder.glob("*.md")):
         try:
@@ -627,7 +630,9 @@ def archive_expired(cfg, today=None):
         except OSError:
             continue
         expires = str(fm.get("expires", "")).strip()[:10]
-        if fm.get("source", "").startswith("distill") and expires and expires < today:
+        if C.is_capture(cfg, path):        # captures are never moved or edited
+            continue
+        if fm.get("source", "").startswith(source) and expires and expires < today:
             target.mkdir(parents=True, exist_ok=True)
             path.rename(target / path.name)
             moved += 1
@@ -637,16 +642,17 @@ def archive_expired(cfg, today=None):
 
 
 # ───────────────────────────────────────────────────────────── renew by use
-def renew_used(cfg, days=2):
+def renew_used(cfg, days=2, folder=None, source="distill", expires_days=None):
     """Distilled notes (source `distill…`, with `expires`) read in the last `days` stay alive:
     `expires` moves to today + `expires_days`. Reading a note is not evidence that it is true,
-    so `verified` is never set here: only a review against the source does that (review.py)."""
+    so `verified` is never set here: only a review against the source does that (review.py).
+    `folder`, `source` and `expires_days` let saved answers (answer.py) renew the same way."""
     opts = options(cfg)
-    folder = opts["folder"].strip("/")
-    until = (C.today() + dt.timedelta(days=int(opts["expires_days"]))).isoformat()
+    folder = (folder or opts["folder"]).strip("/")
+    until = (C.today() + dt.timedelta(days=int(expires_days or opts["expires_days"]))).isoformat()
     paths = {e.get("p") for e in TL.read(cfg["_vault"], days=days) if e.get("ev") == "read" and e.get("p")}
     renewed = 0
-    for rel in sorted(p for p in paths if p.startswith(folder + "/")):
+    for rel in sorted(p for p in paths if p.startswith(folder + "/") and not C.is_capture(cfg, p)):
         path = cfg["_vault"] / rel
         try:
             text = path.read_text(encoding="utf-8")
@@ -654,7 +660,7 @@ def renew_used(cfg, days=2):
             continue
         fm, _ = C.frontmatter(text)
         end = text.find("\n---", 3)
-        if not text.startswith("---") or end < 0 or not fm.get("source", "").startswith("distill") \
+        if not text.startswith("---") or end < 0 or not fm.get("source", "").startswith(source) \
                 or not fm.get("expires") or fm["expires"][:10] >= until:
             continue
         head = N._set_keys(text[4:end], {"expires": until})

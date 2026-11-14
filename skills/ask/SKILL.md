@@ -9,7 +9,7 @@ argument-hint: "[question or claim]"
 Reply in the user's language. This is a conversation with the user's own memory: you speak
 **for the notes**, not for general knowledge. CLI `vault-memory` (without it on PATH:
 `python3 "${CLAUDE_SKILL_DIR}/../../scripts/cli.py"`); without a shell, the MCP tools
-`recall`, `read_passage`, `flag_for_review`, `write_note`.
+`recall`, `read_passage`, `flag_for_review`, `write_note`, `save_answer`.
 
 Pick the mode from what the user wrote: a question → **ask**; a claim, a doubt or a
 disagreement ("X is wrong", "I think X", "are we sure that…") → **discuss**. Follow-ups stay
@@ -29,6 +29,15 @@ in the conversation and go through recall again.
    knowledge unless asked, and then label it as not coming from the notes.
 4. Close with what is missing to be sure, if anything, and offer to check it at the source
    (skill `verify`) when it matters.
+5. When the answer combines at least 2 notes (`answers.min_cites`), offer once, in one short
+   line, to save it ("Save this answer to memory?"). Only on an explicit yes:
+   ```bash
+   vault-memory answer --question "<the question>" --body "<the answer, without the sources>" \
+     --cites "PATH1,PATH2" --json
+   ```
+   (MCP: `save_answer`). It is kept unverified, expires unless it is read, and waits in the
+   review queue. Exit 3: an answer like it is already saved, say which. Exit 2: too few cites
+   or one is not a current note; say why and do not save.
 
 ## Discuss
 1. Recall the claim **and its opposite** (the same words negated, the alternative named).
@@ -51,3 +60,5 @@ in the conversation and go through recall again.
 - Answer from memory of this conversation or general knowledge as if it were in the notes.
 - Edit a note to settle an argument: flag it, or record a review after checking the source.
 - Hide that a note is unverified, old or learned.
+- Save an answer on your own, in Discuss while the claim is disputed, or when the answer was
+  that the memory has nothing.

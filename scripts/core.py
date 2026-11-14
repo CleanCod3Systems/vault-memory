@@ -120,6 +120,8 @@ CONFIG_DEF = {
                # 2026-10-05) lifts the notes dated in that range by this fraction (0 = off).
                # It never drops a note.
                "time_boost": 0.5},
+    # doctor: notes longer than `long_words` dilute recall and are read badly (0 = off).
+    "doctor": {"long_words": 600, "long_skip_types": ["daily", "period", "home", "index"]},
     "hook": {},               # thresholds and regexes of the UserPromptSubmit hook (see hookfilter.py)
     # Freshness (docs/freshness.md): which types are reviewed, after how many days an
     # unverified note is reported, and how much a replaced/expired note weighs in recall.
@@ -134,6 +136,9 @@ CONFIG_DEF = {
                   "review_days_by_volatility": {"live": 21},
                   # `outdated`: a review found the source says otherwise (review.py).
                   "penalty": {"replaced": 0.4, "expired": 0.5, "outdated": 0.5, "unverified": 1.0}},
+    # Captures (capture.py): raw material kept exactly as it arrived, that notes cite as their
+    # evidence. The folder is relative to the vault, outside the index, and never edited.
+    "captures": {"folder": "Captures"},
 }
 
 # ───────────────────────────────────────────────────────────── locate the vault
@@ -253,6 +258,7 @@ TITLE_BONUS = CONFIG_DEF["recall"]["title_bonus"]
 BM25_K1, BM25_B = CONFIG_DEF["recall"]["k1"], CONFIG_DEF["recall"]["b"]
 PRIOR_WEIGHT, PRIOR = 0.0, {}
 EXPAND_KEYS, TIME_BOOST = False, 0.0
+CAPTURES_DIR = None     # absolute captures folder: the last guard before any note is written
 _STEMMER, _IRREGULAR_EXTRA, _STOP_EXTRA = "en", {}, set()
 
 
@@ -265,6 +271,8 @@ def configure(cfg):
     PRIOR_WEIGHT, PRIOR = float(cfg["recall"].get("prior_weight", 0) or 0), {}
     EXPAND_KEYS = bool(cfg["recall"].get("expand_keys"))
     TIME_BOOST = float(cfg["recall"].get("time_boost", 0) or 0)
+    global CAPTURES_DIR
+    CAPTURES_DIR = Path(cfg["_vault"]) / captures_folder(cfg) if cfg.get("_vault") else None
     if PRIOR_WEIGHT and cfg.get("_state"):
         # How often each note was read lately (written by `refresh` and `bench`).
         try:
@@ -285,7 +293,7 @@ def cfg_hash(cfg):
     """Fingerprint of what changes which notes enter the index and how they are tokenized:
     if it changes, the incremental index is useless and gets rebuilt."""
     keys = ("language", "exclude", "types_by_folder", "extra_types", "areas", "default_area",
-            "references", "modules", "recall")
+            "references", "modules", "recall", "captures")
     payload = json.dumps({k: cfg.get(k) for k in keys}, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(f"{TOK_VER}|{IDX_VER}|{payload}".encode("utf-8")).hexdigest()[:12]
 
@@ -304,8 +312,13 @@ def walk(cfg, md_only=True, prune_excluded=True):
     # Without pruning excluded folders (to find attachments: `_attachments/` has no notes but
     # does have the files notes embed) the folders that never matter are still skipped.
     excluded = excluded_folders(cfg) if prune_excluded else {"node_modules", "__pycache__"}
+    # The captures folder is matched by its path, not by name: it is raw material, not notes.
+    captures = captures_folder(cfg) if prune_excluded else None
     for root_dir, dirs, files in os.walk(vault):
-        dirs[:] = sorted(d for d in dirs if d not in excluded and not d.startswith("."))
+        base = os.path.relpath(root_dir, vault).replace(os.sep, "/")
+        prefix = "" if base == "." else base + "/"
+        dirs[:] = sorted(d for d in dirs if d not in excluded and not d.startswith(".")
+                         and prefix + d != captures)
         for name in sorted(files):
             if md_only and not name.endswith(".md"):
                 continue
@@ -351,7 +364,47 @@ def enabled(cfg, name):
 
 
 def excluded_folders(cfg):
+    """Folder names never indexed. The captures folder is pruned by its path in walk()."""
     return set(EXCLUDE) | set(cfg.get("exclude", []))
+
+
+def captures_folder(cfg):
+    """The captures folder, relative to the vault (`captures.folder`, default "Captures")."""
+    folder = str((cfg.get("captures") or {}).get("folder") or "Captures")
+    return folder.replace("\\", "/").strip().strip("/") or "Captures"
+
+
+def _inside(path, folder):
+    """True when `path` is `folder` or lies under it. Compared by file identity where the
+    files exist, so a different letter case or a symlink does not slip past it."""
+    path, folder = Path(path), Path(folder)
+    try:
+        path.resolve().relative_to(folder.resolve())
+        return True
+    except (OSError, ValueError):
+        pass
+    if not folder.exists():
+        return False
+    for parent in (path, *path.parents):
+        try:
+            if parent.exists() and os.path.samefile(parent, folder):
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def is_capture(cfg, path):
+    """True for a path (relative to the vault or absolute) under the captures folder."""
+    path = Path(str(path).strip())
+    if not path.is_absolute():
+        path = Path(cfg["_vault"]) / str(path).lstrip("/\\")
+    return _inside(path, Path(cfg["_vault"]) / captures_folder(cfg))
+
+
+def under_captures(path):
+    """Same check against the vault loaded last (for writers that have no cfg at hand)."""
+    return CAPTURES_DIR is not None and _inside(path, CAPTURES_DIR)
 
 
 # ─────────────────────────────────────────────────────────────── tokenization

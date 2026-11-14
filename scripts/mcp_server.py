@@ -61,14 +61,24 @@ TOOLS = [
      "inputSchema": {"type": "object", "required": ["p", "reason"], "properties": {
          "p": {"type": "string", "description": "path of the note (field p of recall)"},
          "reason": {"type": "string", "description": "one line: what was said against it and by whom"}}}},
+    {"name": "save_answer",
+     "description": "Keep an answer you gave from several notes as a new note: unverified, expiring unless "
+                    "it is read, and queued for review. Call it only after the user said yes to saving it. "
+                    "Every cite must be a current note (field p of recall), at least two by default.",
+     "inputSchema": {"type": "object", "required": ["question", "answer", "cites"], "properties": {
+         "question": {"type": "string", "description": "what the user asked"},
+         "answer": {"type": "string", "description": "the answer as given, without the citations list"},
+         "cites": {"type": "array", "items": {"type": "string"},
+                   "description": "paths of the notes the answer came from (field p of recall)"}}}},
 ]
 
 INSTRUCTIONS = ("Vault memory: call recall before searching elsewhere and answer from the notes, citing "
                 "each one with how sure it is (verified date and confidence, or not verified). If nothing "
                 "matches, say it is not in the memory. When the user disputes what a note says, weigh the "
                 "evidence instead of giving in, and use flag_for_review so the note is checked at its source. "
-                "Use write_note to save facts (it handles duplicates and freshness). Reply to the user in "
-                "their own language.")
+                "Use write_note to save facts (it handles duplicates and freshness). After an answer that "
+                "cites at least two notes you may offer once to save it; call save_answer only after the user "
+                "says yes, never on your own. Reply to the user in their own language.")
 
 HOW_SURE = ("For each claim cite the note (its path) and how sure it is: \"verified YYYY-MM-DD, N/10\" "
             "from its verified and confidence fields, or \"not verified\". A note whose source starts with "
@@ -87,7 +97,9 @@ PROMPTS = {
                  "3. If nothing answers it, say it is not in my memory. Do not fill the gap with general "
                  "knowledge unless I ask, and then label it as not coming from my notes.\n"
                  "4. End with what is missing to be sure, if anything. Keep talking with me: follow-up "
-                 "questions go through recall again.")},
+                 "questions go through recall again.\n"
+                 "5. If the answer cites at least two notes, offer once, in one short line, to save it. Call "
+                 "save_answer only if I say yes.")},
     "discuss": {
         "title": "Discuss with my memory",
         "description": "Weigh a claim against what the vault says: evidence for and against, then a position.",
@@ -170,6 +182,26 @@ def _doctor(cfg, args):
             "totals": {k: len(v) for k, v in report.items()}}
 
 
+class InvalidParams(ValueError):
+    """Bad arguments to a tool: answered as a JSON-RPC -32602 error, not as a tool result."""
+
+
+def _save_answer(cfg, args):
+    import answer as AN
+    cites = args.get("cites")
+    if isinstance(cites, str):
+        cites = [c for c in cites.split(",") if c.strip()]
+    if not isinstance(cites, list):
+        raise InvalidParams("cites must be a list of note paths")
+    try:
+        return AN.save(cfg, str(args.get("question", "")), str(args.get("answer", "")),
+                       [str(c) for c in cites], origin="mcp")
+    except NT.NoteError as e:
+        if e.code == 2:
+            raise InvalidParams(e.message)
+        return {"error": e.message, "code": e.code, **e.details}
+
+
 def _flag(cfg, args):
     import review as RV
     try:
@@ -179,7 +211,7 @@ def _flag(cfg, args):
 
 
 HANDLERS = {"recall": _recall, "read_passage": _read, "write_note": _write, "doctor": _doctor,
-            "flag_for_review": _flag}
+            "flag_for_review": _flag, "save_answer": _save_answer}
 
 
 def prompt_list():
@@ -225,6 +257,8 @@ def respond(cfg, message, version):
         try:
             payload = handler(cfg, params.get("arguments") or {})
             is_error = isinstance(payload, dict) and "error" in payload
+        except InvalidParams:
+            raise
         except Exception as e:             # a tool error is a result, not a server crash
             payload, is_error = {"error": str(e)}, True
         return {"content": [{"type": "text", "text": json.dumps(payload, ensure_ascii=False)}], "isError": is_error}

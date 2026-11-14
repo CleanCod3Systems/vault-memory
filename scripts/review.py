@@ -2,7 +2,8 @@
 
 Freshness (freshness.py) says how old a note is. This module says what to do about it: a
 short, deterministic queue of the notes worth checking now (contradicted ones, notes learned
-from sessions and never audited, the ones people use, the ones whose review is overdue) and
+from sessions or answers saved from a conversation and never audited, the ones people use, the
+ones whose review is overdue) and
 one call to record the verdict with its evidence. Checking needs the real sources (code,
 tickets, chat, databases), so an agent does it following the `verify` skill; nothing here
 talks to a model or to the network.
@@ -16,7 +17,8 @@ Frontmatter a review writes (only these keys, never the body; a backup is kept):
     volatility: live|stable      how fast the fact changes (optional)
 
 Each recorded check also adds one line to `<state>/reviews.jsonl`, the log calibration.py
-measures confidence and learned-note precision against.
+measures confidence and learned-note precision against. A saved answer (answer.py) is logged
+with `learned: false, answer: true`: it never counts toward learned-note precision.
 
 A flag (`flag`) is lighter than a review: someone said in a conversation that a note may be
 wrong. It never touches the note; it adds a line to `<state>/flags.jsonl` and puts the note at
@@ -27,6 +29,7 @@ import json
 import re
 from collections import defaultdict
 
+import answer as AN
 import calibration as CB
 import contract as CT
 import core as C
@@ -102,6 +105,7 @@ def flag(cfg, rel, reason, origin="cli"):
     if not reason:
         raise N.NoteError(2, "a flag needs a reason: what was said against the note")
     rel = rel.strip().lstrip("/")
+    N.refuse_capture(cfg, rel)
     path = (cfg["_vault"] / rel).resolve()
     if cfg["_vault"].resolve() not in path.parents or path.suffix != ".md" or not path.is_file():
         raise N.NoteError(2, f"{rel} is not a note of this vault")
@@ -153,6 +157,7 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
     settings = cfg["freshness"]
     docs = [d for d in RC.load(cfg)["docs"] if not d["archived"] and not d.get("template")]
     learned = DS.options(cfg)["folder"].strip("/")
+    answers = AN.folder(cfg)
     used = _usage(cfg, int(opts["usage_days"]))
     disputed = _disputed(cfg, docs, learned)
     flags = open_flags(cfg)
@@ -161,8 +166,9 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
     coverage = {"notes": 0, "verified_current": 0, "outdated": 0, "unsure": 0, "due": 0}
     rows, high = [], 0
     for d in docs:
-        is_learned = d["p"].startswith(learned + "/")
-        if not (FR.reviewable(d, settings) or is_learned or d["p"] in flags):
+        is_answer = d["p"].startswith(answers + "/")
+        is_learned = d["p"].startswith(learned + "/") and not is_answer
+        if not (FR.reviewable(d, settings) or is_learned or is_answer or d["p"] in flags):
             continue
         current_state = FR.state(d, settings)
         if current_state in ("replaced", "expired"):
@@ -186,6 +192,9 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
         if is_learned and not d.get("confidence"):
             score += 10
             reasons.append("learned from a session, never audited")
+        elif is_answer and not d.get("confidence"):
+            score += 10
+            reasons.append("saved from a conversation, never audited")
         elif age is None:
             fallback = FR.days_unverified(d)
             if used.get(d["p"]) or (fallback is not None and fallback > limit):
@@ -196,7 +205,7 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
             reasons.append(f"verified {age} d ago, due every {limit} d")
         if not reasons:
             continue
-        high += d["p"] in disputed or (is_learned and not d.get("confidence"))
+        high += d["p"] in disputed or ((is_learned or is_answer) and not d.get("confidence"))
         if d.get("volatility") == "live":
             score += 3
         if used.get(d["p"]):
@@ -207,7 +216,7 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
         rows.append({"p": d["p"], "t": d["t"], "type": d["type"], "score": round(score, 1),
                      "reasons": reasons, "verified": d.get("verified", ""), "limit": limit,
                      "volatility": d.get("volatility", ""), "source": d.get("source", ""),
-                     "learned": is_learned})
+                     "learned": is_learned, "answer": is_answer})
     rows.sort(key=lambda r: (-r["score"], r["p"]))
     coverage["due"] = len(rows)
     plan = budget(cfg, high, len(rows), cap)
@@ -236,6 +245,7 @@ def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=
     if volatility and volatility not in FR.VOLATILITY:
         raise N.NoteError(2, f"volatility must be one of {', '.join(FR.VOLATILITY)}")
     rel = rel.strip().lstrip("/")
+    N.refuse_capture(cfg, rel)
     path = cfg["_vault"] / rel
     if not path.is_file():
         raise N.NoteError(2, f"{rel} does not exist")
@@ -244,6 +254,7 @@ def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=
     if not text.startswith("---") or end < 0:
         raise N.NoteError(2, f"{rel} has no frontmatter: normalize it with  vault-memory fix --apply")
     fm, _ = C.frontmatter(text)
+    is_answer = AN.is_answer(cfg, rel)
     day = (today or C.today()).isoformat()
     prev_verdict, prev_confidence, prev_checked = CB.previous(cfg, rel, fm)
     keys = {"checked": day, "evidence": evidence[:EVIDENCE_MAX]}
@@ -251,7 +262,7 @@ def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=
     if verdict == "confirmed":
         keys.update(verified=day, confidence=confidence)
         drop.append("review")
-        if fm.get("source", "").startswith("distill"):
+        if fm.get("source", "").startswith("distill") or is_answer:
             drop.append("expires")            # audited: it no longer needs to expire unused
     else:
         keys["review"] = verdict
@@ -265,7 +276,11 @@ def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=
     folder = DS.options(cfg)["folder"].strip("/")
     CB.append(cfg, {"day": day, "p": rel, "verdict": verdict, "confidence": confidence,
                     "volatility": volatility or fm.get("volatility") or None,
-                    "learned": rel.startswith(folder + "/") or fm.get("source", "").startswith("distill"),
+                    # a saved answer was not written by distill: it never counts toward
+                    # learned-note precision, so earned autonomy is not inflated by it
+                    "learned": not is_answer and (rel.startswith(folder + "/")
+                                                  or fm.get("source", "").startswith("distill")),
+                    **({"answer": True} if is_answer else {}),
                     "prev_verdict": prev_verdict, "prev_confidence": prev_confidence,
                     "prev_checked": prev_checked})
     TL.record(cfg["_vault"], {"ev": "review", "p": rel, "verdict": verdict,

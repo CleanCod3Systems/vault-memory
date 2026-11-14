@@ -113,7 +113,20 @@ def drop_keys(head, keys):
     return "\n".join(out)
 
 
+CAPTURE_REFUSED = ("is a capture: captures keep the material exactly as it arrived and are never "
+                   "edited; write a note that cites it (`capture:` field) instead")
+
+
+def refuse_capture(cfg, rel):
+    """Captures (capture.py) are evidence: no update, replace, review or flag touches one."""
+    if C.is_capture(cfg, rel):
+        raise NoteError(2, f"{rel} {CAPTURE_REFUSED}", {"p": rel})
+
+
 def _write_atomic(target, text):
+    # The one place every note writer goes through: nothing here writes inside the captures folder.
+    if C.under_captures(target):
+        raise NoteError(2, f"{target.name} {CAPTURE_REFUSED}")
     target.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(dir=target.parent, prefix=".vault-memory-", suffix=".md")
     with os.fdopen(fd, "w", encoding="utf-8") as handle:
@@ -135,11 +148,13 @@ def replace_if_unchanged(path, before, after):
     _write_atomic(path, after)
 
 
-def _resolve_replaced(idx, name):
+def _resolve_replaced(cfg, idx, name):
     name_to_paths = defaultdict(list)
     for d in idx["docs"]:
         name_to_paths[d["n"]].append(d["p"])
     target = name.strip().strip("[]")
+    if C.is_capture(cfg, target) or C.is_capture(cfg, target + ".md"):
+        raise NoteError(2, f"{target} {CAPTURE_REFUSED}")
     candidates = name_to_paths.get(target) or [d["p"] for d in idx["docs"]
                                                if d["p"] == target or d["p"] == target + ".md"]
     if not candidates:
@@ -177,6 +192,7 @@ def write(cfg, title=None, note_type=None, folder=None, body="", area=None, tags
         raise NoteError(2, f"invalid folder: {folder!r} (relative to the vault, no '..')")
     name = FORBIDDEN.sub("-", title).strip(" .-")
     rel = f"{folder}/{name}.md" if folder else f"{name}.md"
+    refuse_capture(cfg, rel)
     if (cfg["_vault"] / rel).exists():
         raise NoteError(2, f"{rel} already exists: to change it use --update", {"p": rel})
     area = area or C.area_of(rel, cfg)
@@ -184,7 +200,7 @@ def write(cfg, title=None, note_type=None, folder=None, body="", area=None, tags
     if cfg.get("areas") and area not in valid_areas:
         raise NoteError(2, f"area {area!r} is not in the config. Valid: {', '.join(sorted(valid_areas))}")
 
-    replaced = _resolve_replaced(idx, replaces) if replaces else None
+    replaced = _resolve_replaced(cfg, idx, replaces) if replaces else None
     if not force:
         found = duplicates(cfg, idx, _draft(title, note_type, body, fields.get("system", "")),
                            key=key, family=known_families.get(note_type))
@@ -223,6 +239,7 @@ def write(cfg, title=None, note_type=None, folder=None, body="", area=None, tags
 
 def _update(cfg, idx, rel, body, append, area, tags, replaces, keys, dry_run):
     rel = rel.strip().lstrip("/")
+    refuse_capture(cfg, rel)
     path = cfg["_vault"] / rel
     if not path.exists():
         raise NoteError(2, f"{rel} does not exist")
@@ -236,7 +253,7 @@ def _update(cfg, idx, rel, body, append, area, tags, replaces, keys, dry_run):
     if tags:
         keys["tags"] = tags
     if replaces:
-        keys["replaces"] = _link_to(_resolve_replaced(idx, replaces))
+        keys["replaces"] = _link_to(_resolve_replaced(cfg, idx, replaces))
     if body.strip():
         if append:
             rest = rest.rstrip() + f"\n\n## {C.today().isoformat()}\n\n{body.strip()}\n"

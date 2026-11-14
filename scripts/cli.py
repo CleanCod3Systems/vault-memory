@@ -14,9 +14,11 @@
   vault-memory modules [--on X] [--off Y]         what is active; turn on and off
   vault-memory migrate [--apply]                  rewrite a legacy (Spanish) vault to the current names
   vault-memory ingest --file F [--source S]       learn from a thread, issue or PR an agent collected
+  vault-memory capture FILE|- [--title T]         keep raw material as it arrived (ingest --capture PATH)
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
   vault-memory review --budget | --calibration    today's check count; does confidence hold up?
   vault-memory review PATH --flag "reason"        disputed in a conversation: check it first
+  vault-memory answer --question Q --cites A,B    keep an answer as a note (unverified, reviewed later)
   vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
   vault-memory bases [--install] [--folder F]     standard Obsidian views (.base) missing in the vault
   vault-memory links [--n 20]                     notes that talk about the same thing and are not linked
@@ -358,9 +360,13 @@ def doctor(args, cfg):
     result = PT.build(cfg, docs, link_graph, coverage, write=False)
     report = FR.analyze({"docs": docs}, cfg)
     properties = CT.property_issues(cfg)
+    import capture as CP
+    captures = CP.report(cfg, docs)
+    long_notes = _long_notes(cfg, docs)
     if args.json:
         print(json.dumps({"health": result["health"], "gaps": link_graph["gaps"], "freshness": report,
-                          "properties": properties,
+                          "properties": properties, "long_notes": long_notes,
+                          "captures": captures,
                           "distill": dict(zip(("provider", "ready", "detail"), DS.readiness(cfg)))},
                          ensure_ascii=False, indent=1))
         return
@@ -399,6 +405,14 @@ def doctor(args, cfg):
         for row in repeated[:8]:
             print(f"  ×{row['n']:<3} {row['class']:<28} last {row['last'] or '—'}")
     _freshness(report, cfg)
+    if long_notes["threshold"] and long_notes["count"]:
+        shown = long_notes["notes"][:10]
+        print(f"\n{long_notes['count']} notes longer than {long_notes['threshold']} words "
+              f"(long notes dilute recall; one screen is enough):")
+        for item in shown:
+            print(f"  {item['words']:>5}  {item['p']}")
+        if long_notes["count"] > len(shown):
+            print(f"  … {long_notes['count'] - len(shown)} more")
     if DS.options(cfg)["enabled"]:
         name, ok, detail = DS.readiness(cfg)
         print(f"\ndistill provider: {name} · {'ready' if ok else 'NOT ready'} · {detail}")
@@ -407,6 +421,44 @@ def doctor(args, cfg):
         print(f"\nObsidian properties ({len(properties)}): " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
         for item in properties[:5]:
             print(f"  {item['issue']:<32} {item['key']:<14} {item['p']}")
+    _captures(captures)
+
+
+def _captures(report):
+    """Captures are evidence: report the ones edited after capture and the notes citing a
+    capture that is gone. Report only."""
+    if not (report["n"] or report["dangling"]):
+        return
+    print(f"\nCaptures ({report['folder']}/): {report['n']}")
+    for path in report["edited"][:8]:
+        print(f"  ✗ edited after capture  {path}   (body no longer matches its sha256)")
+    for item in report["dangling"][:8]:
+        print(f"  ⚠ missing capture       {item['p']}  →  [[{item['capture']}]]")
+
+
+def _long_notes(cfg, docs):
+    """Notes whose body (no frontmatter, no fenced code) is above doctor.long_words. Report only."""
+    threshold = int(cfg["doctor"].get("long_words", 0) or 0)
+    out = {"threshold": threshold, "count": 0, "notes": []}
+    if threshold <= 0:
+        return out
+    skip = set(cfg["doctor"].get("long_skip_types", []))
+    found = []
+    for d in docs:
+        # d["words"] counts code too, so it is an upper bound: only those can be long.
+        if d["archived"] or d["type"] in skip or d["words"] <= threshold:
+            continue
+        try:
+            text = (cfg["_vault"] / d["p"]).read_text(encoding="utf-8")
+        except Exception:
+            continue
+        body = re.sub(r"^(```|~~~).*?^\1[^\n]*$", "", C.frontmatter(text)[1], flags=re.S | re.M)
+        words = sum(1 for _ in C.TOK.finditer(C.norm(body)))
+        if words > threshold:
+            found.append({"p": d["p"], "words": words})
+    found.sort(key=lambda x: (-x["words"], x["p"]))
+    out.update(count=len(found), notes=found)
+    return out
 
 
 def _freshness(report, cfg):
@@ -604,6 +656,34 @@ def cmd_note(args, cfg):
         print(f"  {result['mode']}  {result['p']}")
 
 
+def cmd_answer(args, cfg):
+    """Keep an answer from a conversation as a note: unverified, expiring, queued for review."""
+    import answer as AN
+    body = args.body or ""
+    if args.body_file:
+        body = Path(args.body_file).read_text(encoding="utf-8")
+    elif args.stdin:
+        body = sys.stdin.read()
+    cites = [c for c in (args.cites or "").split(",") if c.strip()]
+    try:
+        result = AN.save(cfg, args.question, body, cites, title=args.title, dry_run=args.dry_run)
+    except NT.NoteError as e:
+        if args.json:
+            print(json.dumps({"error": e.message, **e.details}, ensure_ascii=False, indent=1))
+        else:
+            print(f"vault-memory answer: {e.message}", file=sys.stderr)
+            for dup in e.details.get("duplicates", []):
+                print(f"  {dup['score']:.2f}  {dup['p']}   ({dup['reason']})", file=sys.stderr)
+        sys.exit(e.code)
+    if args.json:
+        print(json.dumps({k: v for k, v in result.items() if k != "text" or args.dry_run},
+                         ensure_ascii=False, indent=1))
+    elif result.get("dry_run"):
+        print(result["text"])
+    else:
+        print(f"  saved  {result['p']}  (from {len(result['cites'])} notes, unverified, queued for review)")
+
+
 def cmd_mcp(args, cfg):
     MCP.serve(cfg, _version())
 
@@ -694,12 +774,21 @@ def cmd_distill(args, cfg):
 
 def cmd_ingest(args, cfg):
     """Learn from material an agent collected (a thread, an issue, a PR): JSON or Markdown."""
+    import capture as CP
     import ingest as IG
     import sources as SR
     try:
-        raw = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text(encoding="utf-8")
-        session = SR.material(raw, source=args.source, url=args.url, ref_id=args.id, date=args.date,
-                              today=C.today())
+        if args.capture:
+            # a capture: its body, its url and date by default, and a `capture:` link on every candidate
+            session = CP.session(cfg, args.capture, source=args.source, url=args.url, ref_id=args.id,
+                                 date=args.date)
+        else:
+            raw = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text(encoding="utf-8")
+            session = SR.material(raw, source=args.source, url=args.url, ref_id=args.id, date=args.date,
+                                  today=C.today())
+    except CP.CaptureError as e:
+        print(f"  ingest: {e.message}", file=sys.stderr)
+        sys.exit(e.code)
     except (OSError, ValueError) as e:
         print(f"  ingest: {e}", file=sys.stderr)
         sys.exit(2)
@@ -716,6 +805,24 @@ def cmd_ingest(args, cfg):
           + (f" ({reasons})" if reasons else "") + ("  [dry run]" if args.dry_run else ""))
 
 
+def cmd_capture(args, cfg):
+    """Keep raw material exactly as it arrived (redacted first), for notes to cite."""
+    import capture as CP
+    try:
+        text = sys.stdin.read() if args.file == "-" else Path(args.file).expanduser().read_text(encoding="utf-8")
+        result = CP.write(cfg, text, title=args.title, url=args.url, date=args.date)
+    except CP.CaptureError as e:
+        print(f"  capture: {e.message}", file=sys.stderr)
+        sys.exit(e.code)
+    except (OSError, ValueError) as e:
+        print(f"  capture: {e}", file=sys.stderr)
+        sys.exit(2)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+    else:
+        print(result["p"])
+
+
 def cmd_refresh(args, cfg):
     started, mods = dt.datetime.now(), C.modules(cfg)
     if DS.options(cfg)["enabled"] and not args.no_distill:
@@ -724,6 +831,10 @@ def cmd_refresh(args, cfg):
             _print_distill(DS.run(cfg))
         except DS.DistillError as e:
             print(f"  distill: {e}")
+    import answer as AN
+    renewed, archived = AN.upkeep(cfg)          # saved answers expire like learned notes
+    if renewed or archived:
+        print(f"  answers        renewed {renewed} · archived {archived}")
     docs, link_graph, coverage = IX.build(cfg)
     result = PT.build(cfg, docs, link_graph, coverage)
     if mods["patterns"]:
@@ -1145,6 +1256,17 @@ def main():
     p.add_argument("--dry-run", dest="dry_run", action="store_true", help="show what would be written")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_note)
+    p = sub.add_parser("answer", help="keep an answer that cites several notes as a new note (unverified, reviewed later)")
+    p.add_argument("--question", required=True, help="what was asked (default title)")
+    group = p.add_mutually_exclusive_group(required=True)
+    group.add_argument("--body", help="the answer")
+    group.add_argument("--body-file", dest="body_file")
+    group.add_argument("--stdin", action="store_true", help="read the answer from stdin")
+    p.add_argument("--cites", required=True, help="paths of the cited notes, comma-separated (field p of recall)")
+    p.add_argument("--title", help="note title (default: the question)")
+    p.add_argument("--dry-run", dest="dry_run", action="store_true", help="show what would be written")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_answer)
 
     p = sub.add_parser("usage", help="memory usage metrics (local telemetry)")
     p.add_argument("--days", type=int, default=14)
@@ -1161,14 +1283,25 @@ def main():
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_distill)
     p = sub.add_parser("ingest", help="learn from material an agent collected (thread, issue, PR): JSON or Markdown")
-    p.add_argument("--source", help="where it comes from, lowercase (e.g. chat, issues, prs); required for Markdown")
-    p.add_argument("--file", required=True, help="path to a .json or .md file, or - for stdin")
+    p.add_argument("--source", help="where it comes from, lowercase (e.g. chat, issues, prs); required for Markdown "
+                        "(with --capture: default capture)")
+    material = p.add_mutually_exclusive_group(required=True)
+    material.add_argument("--file", help="path to a .json or .md file, or - for stdin")
+    material.add_argument("--capture", metavar="PATH",
+                          help="a capture in the captures folder (vault-memory capture): its candidates cite it")
     p.add_argument("--url", help="link to the original (stored with the candidate)")
     p.add_argument("--id", help="id in the original system (default: a hash of the content)")
     p.add_argument("--date", help="YYYY-MM-DD the material is from (default: the JSON date or today)")
     p.add_argument("--dry-run", dest="dry_run", action="store_true", help="call the model, write nothing")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_ingest)
+    p = sub.add_parser("capture", help="keep raw material exactly as it arrived (redacted), for notes to cite")
+    p.add_argument("file", metavar="FILE", help="path to the material, or - for stdin")
+    p.add_argument("--title", help="default: the first heading or line of the text")
+    p.add_argument("--url", help="link to the original")
+    p.add_argument("--date", help="YYYY-MM-DD it was captured (default: today)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_capture)
     p = sub.add_parser("today", help="daily summary: what is next, waiting and due soon")
     p.add_argument("--all", action="store_true", help="every open item, not only the top ones")
     p.add_argument("--json", action="store_true")

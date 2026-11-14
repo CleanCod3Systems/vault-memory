@@ -220,9 +220,11 @@ def resolve_link(link, name_to_paths, origin):
 def graph(docs, name_to_paths, cfg):
     # An attachment embed is not a broken link: ![[Pasted image X.png]], [[Incidents.base]]
     # and [[Diagram.html]] point to files that exist, they are just not .md notes.
-    other_files = set()
-    for path, _ in C.walk(cfg, md_only=False, prune_excluded=False):
-        if path.suffix != ".md":
+    # A capture (capture.py) is not indexed, but a note citing one (`capture: "[[...]]"`) links
+    # to a file that exists: doctor reports the missing ones itself.
+    other_files, captures = set(), C.captures_folder(cfg) + "/"
+    for path, rel in C.walk(cfg, md_only=False, prune_excluded=False):
+        if path.suffix != ".md" or rel.startswith(captures):
             other_files.add(path.name)
             other_files.add(path.stem)
 
