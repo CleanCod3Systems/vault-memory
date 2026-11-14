@@ -1,9 +1,11 @@
 # vault-memory as an MCP server
 
-`vault-memory mcp` exposes the same engine over stdio (JSON-RPC 2.0, stdlib only) with five
+`vault-memory mcp` exposes the same engine over stdio (JSON-RPC 2.0, stdlib only) with six
 tools: `recall` (results carry `verified`, `confidence` and `source`, so answers say how sure
 they are), `read_passage`, `write_note`, `doctor` and `flag_for_review` (the user says a note
-may be wrong: it is not edited, it goes first in the review queue). Two prompts turn a chat
+may be wrong: it is not edited, it goes first in the review queue) and `save_answer` (keep
+an answer that combined two or more notes, only after the user says yes; it is written
+unverified, with the notes it came from, and expires unless it is read). Two prompts turn a chat
 into a conversation with the memory: `ask` (answer only from the notes, citing each one) and
 `discuss` (weigh a claim against the notes, hold a position unless new evidence appears, flag
 what turns out disputed). Clients that show MCP prompts list them in their prompt menu. It is

@@ -58,7 +58,8 @@ returns the notes worth checking now, most urgent first, each with its reasons:
 
 1. contradicted: two current notes with the same `key`, or a learned note that says
    `Contradicts [[X]]` (distill writes that instead of editing a note the person wrote);
-2. learned from sessions and never audited (no `confidence`);
+2. learned from sessions, or saved answers (`answers.folder`), never audited (no `confidence`);
+   reviews of saved answers do not count toward learned-note precision;
 3. used: read, or suggested by the hook, in the last `review.usage_days` (30);
 4. past their review interval; `live` notes get a little extra weight.
 

@@ -71,6 +71,14 @@ _Avoid_: connector, integration
 The reader that turns one source's files into the sessions of a day.
 _Avoid_: plugin, driver
 
+**Capture**:
+Raw material (an article, a thread, a transcript) kept exactly as it arrived, so the notes learned from it can always be checked against it. Nothing ever edits it, and it is not part of what recall searches.
+_Avoid_: raw note, clipping, source (a source is where learning reads sessions from)
+
+**Saved answer**:
+An answer from a conversation with the memory that combined several notes, kept as a note with the notes it came from. The person chose to keep it; it is unverified, waits for a review and expires unless it is read.
+_Avoid_: derived note, Q&A note
+
 **Ingest**:
 Handing vault-memory material an agent collected elsewhere (a thread, an issue), so it is learned from like a session.
 _Avoid_: import, sync
