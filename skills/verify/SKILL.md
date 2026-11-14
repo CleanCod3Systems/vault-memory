@@ -20,6 +20,18 @@ run, check exactly `budget.n` notes: it is `review.daily.base` plus one per cont
 never-audited learned note waiting, up to `review.daily.max`.
 
 ## 2. Check each note
+**With subagents** and the plugin's agents (Claude Code: `vault-memory:memory-verifier` and
+`vault-memory:memory-skeptic`), per note:
+1. Start `memory-verifier` with the note path and the vault path. It returns a JSON
+   proposal: claims with source, what each shows and whether it holds, then verdict,
+   confidence, volatility and evidence.
+2. Start `memory-skeptic` in a fresh context with only the note text and that JSON, never the
+   verifier's reasoning. It returns what it refuted, a confidence no higher than the
+   verifier's and a `verdict_change` when it found the note outdated or unsure.
+3. Merge: the skeptic's confidence and verdict change win; then section 3's table and rules
+   win over both. You are the single writer: the agents never run `vault-memory review`.
+
+**Without them**, inline:
 1. Read the note. List its checkable claims (at most 5): names, numbers, states, dates,
    who decided what, how something works.
 2. Go to the primary source of each claim, read-only:
