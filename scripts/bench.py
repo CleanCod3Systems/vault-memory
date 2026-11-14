@@ -200,6 +200,19 @@ def tune(cfg, idx, cases, reads):
             "cases": len(cases), "tried": tried}
 
 
+# Notes an agent opens to find its way, not to answer: entry files (read at the start of a
+# session whatever was asked) and home, index, daily and period notes. A read of one after a
+# question is not evidence that it answered it, and made most mined cases unanswerable.
+ENTRY_FILES = {"readme.md", "claude.md", "agents.md", "gemini.md"}
+
+
+def answer_paths(cfg, idx):
+    """Notes whose read after a question counts as its answer."""
+    skip = set(cfg["recall"].get("similar_skip_types", [])) | {"home", "template"}
+    return {d["p"] for d in idx["docs"]
+            if d["p"].rsplit("/", 1)[-1].lower() not in ENTRY_FILES and d["type"] not in skip}
+
+
 def reads_of(events, known_paths):
     return sorted((e for e in events if e.get("ev") == "read" and e.get("p") in known_paths),
                   key=lambda e: e["t"])
@@ -218,7 +231,7 @@ def run(cfg, days=DAYS, do_tune=False, write=True):
     known = {d["p"] for d in idx["docs"]}
     events = TL.read(cfg["_vault"], days=days)
     reads = reads_of(events, known)
-    mined = mine(events, known, tuple(HF.options(cfg).get("skip_prefixes", [])))
+    mined = mine(events, answer_paths(cfg, idx), tuple(HF.options(cfg).get("skip_prefixes", [])))
     cases = mined + hand_cases(cfg)
     metrics, ranks = evaluate(cfg, idx, cases, reads)
     result = {"generated": C.today().isoformat(), "days": days, "cases": len(cases),

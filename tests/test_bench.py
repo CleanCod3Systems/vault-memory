@@ -60,6 +60,13 @@ class TestMine(unittest.TestCase):
                          ev(0, "recall", q="retry policy", sid="s2"), ev(1, "read", p="Memory/B.md", sid="s2")], KNOWN)
         self.assertEqual(len(cases), 1)
 
+    def test_entry_files_and_home_notes_are_not_answers(self):
+        docs = [{"p": "README.md", "type": "home"}, {"p": "CLAUDE.md", "type": "note"},
+                {"p": "Team/AGENTS.md", "type": "doc"}, {"p": "Daily/2026-11-10.md", "type": "daily"},
+                {"p": "Memory/A.md", "type": "doc"}, {"p": "Flat note.md", "type": "note"}]
+        cfg = {"recall": {"similar_skip_types": ["daily", "period", "home", "index"]}}
+        self.assertEqual(BN.answer_paths(cfg, {"docs": docs}), {"Memory/A.md", "Flat note.md"})
+
     def test_prior_never_sees_the_answer(self):
         reads = [ev(1, "read", p="Memory/A.md", sid="s0"), ev(5, "read", p="Memory/A.md", sid="s1"),
                  ev(9, "read", p="Memory/B.md", sid="s0")]
