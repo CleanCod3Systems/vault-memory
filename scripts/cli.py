@@ -18,6 +18,7 @@
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
   vault-memory review --budget | --calibration    today's check count; does confidence hold up?
   vault-memory review PATH --flag "reason"        disputed in a conversation: check it first
+  vault-memory inbox [--accept ID | --reject ID]  learned candidates waiting: list, accept, reject
   vault-memory answer --question Q --cites A,B    keep an answer as a note (unverified, reviewed later)
   vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
   vault-memory bench --compare                    plain BM25 against the semantic rerank, paired
@@ -968,6 +969,43 @@ def cmd_review(args, cfg):
         print(f"      {'; '.join(row['reasons'])}")
 
 
+def cmd_inbox(args, cfg):
+    """Learned candidates waiting in the inbox: list them, accept one (note + confirmed review)
+    or reject one (logged as an outdated learned claim). Both count as audits."""
+    import inbox as IB
+    try:
+        if args.accept:
+            result = IB.accept(cfg, args.accept, args.evidence, args.confidence, args.volatility)
+        elif args.reject:
+            result = IB.reject(cfg, args.reject, args.reason)
+        else:
+            result = IB.listing(cfg)
+    except NT.NoteError as e:
+        if args.json:
+            print(json.dumps({"error": e.message, **e.details}, ensure_ascii=False, indent=1))
+        else:
+            print(f"vault-memory inbox: {e.message}", file=sys.stderr)
+            for dup in e.details.get("duplicates", []):
+                print(f"  {dup['score']:.2f}  {dup['p']}   ({dup['reason']})", file=sys.stderr)
+        sys.exit(e.code)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+    elif args.accept:
+        print(f"  accepted  {result['id']}  →  {result['p']}  (confirmed {result['confidence']}/10)")
+    elif args.reject:
+        print(f"  rejected  {result['id']}  (logged as an outdated learned claim)")
+    elif not result["candidates"]:
+        print("  the inbox is empty: nothing learned is waiting for review")
+    else:
+        print(f"\n  inbox · {result['count']} learned candidates waiting\n")
+        for row in result["candidates"]:
+            print(f"  {row['id']}  {row['day']}  {row['origin'] or row['source']}  [{row['type']}]  {row['title']}")
+            if row["quote"]:
+                print(f"            > {row['quote']}")
+        print("\n  accept:  vault-memory inbox --accept ID --evidence \"<source>: <what it shows>\" [--confidence 8-10]"
+              "\n  reject:  vault-memory inbox --reject ID --reason \"<why it does not hold>\"")
+
+
 def _print_calibration(data, as_json):
     if as_json:
         print(json.dumps(data, ensure_ascii=False, indent=1))
@@ -1429,6 +1467,16 @@ def main():
                    help="does confidence hold up at the next review? and learned-note precision")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_review)
+    p = sub.add_parser("inbox", help="learned candidates waiting for review: list, accept or reject (each counts as an audit)")
+    decision = p.add_mutually_exclusive_group()
+    decision.add_argument("--accept", metavar="ID", help="write the candidate as a note and record it as confirmed")
+    decision.add_argument("--reject", metavar="ID", help="write no note; log the learned claim as outdated")
+    p.add_argument("--evidence", help="with --accept: the source checked and what it shows (required)")
+    p.add_argument("--confidence", type=int, help="with --accept: 8-10 (default `review.min_confirm`, 8)")
+    p.add_argument("--volatility", choices=["live", "stable"], help="with --accept: how fast the fact changes")
+    p.add_argument("--reason", help="with --reject: why the learned claim does not hold (required)")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_inbox)
     p = sub.add_parser("mcp", help="MCP server over stdio (desktop chat, Codex, Cursor, Gemini, Copilot)")
     p.set_defaults(fn=cmd_mcp)
     p = sub.add_parser("eval")

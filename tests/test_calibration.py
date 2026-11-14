@@ -159,6 +159,18 @@ class TestPrecision(Env):
                          (3, 2, 1, 1))
         self.assertEqual(learned["precision"], 0.667)
 
+    def test_an_inbox_rejection_counts_like_an_outdated_learned_note(self):
+        import inbox as IB
+        cfg = self.cfg()
+        DS.write_inbox(cfg, candidate(), {"sid": "aaaa1111-0000"}, DAY, 1, False)
+        IB.reject(cfg, IB.pending(cfg)[0]["id"], "the ticket says otherwise")
+        self.event("Memory/learned/b.md", "outdated", learned=True)
+        rejected, reviewed = CB.read(cfg)
+        self.assertEqual(CB.precision([rejected]), CB.precision([reviewed]))
+        self.assertEqual(CB.buckets([rejected])[0], CB.buckets([reviewed])[0])   # no confidence to calibrate
+        learned = CB.precision([rejected, reviewed])
+        self.assertEqual((learned["audited"], learned["outdated"]), (2, 2))
+
 
 class TestAutonomy(Env):
     def test_off_and_on_keep_their_meaning(self):

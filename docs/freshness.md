@@ -99,7 +99,9 @@ tends to run high (arXiv 2306.13063): this is how you find out by how much.
 while the precision of learned notes (confirmed at their first settled audit) has a Wilson
 lower bound ≥ `distill.earned_min_precision` (0.8) over at least `distill.earned_min_audits`
 (20) audits; otherwise they go to the inbox. `distill` and `ingest` say which path they took
-and why.
+and why. Deciding on an inbox candidate is an audit too: `vault-memory inbox --accept ID --evidence …`
+writes the note and logs a `confirmed` review of it; `--reject ID --reason …` writes no note and
+logs an `outdated` line for `inbox:<id>` with the redacted reason (the only line that carries one).
 
 **Daily budget.** `review --budget [MAX]` cuts the queue to `review.daily.base` (4) plus one per
 contradicted or never-audited learned note, up to `review.daily.max` (8), never more than are

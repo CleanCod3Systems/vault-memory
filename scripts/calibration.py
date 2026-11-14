@@ -17,7 +17,9 @@ back). Each line is then one observation, read without replaying anything:
   it is counted apart and left out of the rate. A same-day re-check is a correction, not a
   test of time, and is left out too.
 - **Learned-note precision**: of the learned notes whose audit settled (`confirmed` or
-  `outdated`; the first settled verdict per note), the share confirmed.
+  `outdated`; the first settled verdict per note), the share confirmed. Inbox decisions
+  (inbox.py) count too: an accepted candidate is a `confirmed` review of the note it became,
+  a rejected one an `outdated` line whose `p` is `inbox:<id>`.
 - **Autonomy**: `distill.auto: "earned"` writes notes directly only while the Wilson lower
   bound of that precision is ≥ `distill.earned_min_precision` (0.8) over at least
   `distill.earned_min_audits` (20) audits; otherwise learned notes go to the inbox.

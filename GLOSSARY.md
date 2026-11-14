@@ -28,7 +28,7 @@ A note written by the model from the user's sessions, not by the user. It carrie
 _Avoid_: auto note, memory candidate
 
 **Inbox**:
-Where learned notes wait for review when automatic learning is off. It lives outside the vault.
+Where learned notes wait for review when automatic learning is off. It lives outside the vault. Accepting a candidate (with evidence) writes it and confirms it; rejecting it writes nothing; either decision counts as an audit of learned notes.
 
 **Review**:
 Checking a note against its primary source (the code, the ticket, the thread, the data) and recording the verdict with its evidence: confirmed, outdated or unsure. Reading a note or finding it in another note is not a review.

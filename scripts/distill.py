@@ -422,7 +422,7 @@ def _slug(text):
 def write_inbox(cfg, cand, session, day, index, dry_run):
     ref = re.sub(r"[^\w.-]+", "-", _ref(session))[:40]
     path = Path(cfg["_state"]) / "inbox" / f"{day}-{ref}-{index}-{_slug(cand['title'])[:50]}.md"
-    if path.exists():
+    if path.exists() or (path.parent / "done" / path.name).exists():   # decided: inbox.py
         return "already_in_inbox"
     if not dry_run:
         text = ("---\n" + f"type: {cand['type']}\nkey: {_slug(cand.get('key') or '')}\n"
