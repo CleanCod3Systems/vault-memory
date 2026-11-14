@@ -45,7 +45,7 @@ in the health report.
 
 ## 2. `type` vocabulary (closed)
 
-Twelve values in three families. The engine derives the family; it is not written.
+Thirteen values in three families. The engine derives the family; it is not written.
 
 **`record` family** — something happened, it has a date:
 
@@ -72,6 +72,7 @@ Twelve values in three families. The engine derives the family; it is not writte
 |---|---|
 | `home` | Front page or index of a folder |
 | `template` | Template for new notes |
+| `index` | A page vault-memory generates (the catalog, the operations log); never written by hand |
 | `note` | Catch-all. If you have many, a type is missing |
 
 Your own types go in `config.json → extra_types`. Do not invent loose values in the notes:

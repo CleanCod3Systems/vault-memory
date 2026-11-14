@@ -176,9 +176,10 @@ def candidate(**over):
 
 
 class FakeProvider:
-    def __init__(self, candidates=None, supported=True, relation=None):
+    def __init__(self, candidates=None, supported=True, relation=None, update=None):
         self.candidates, self.supported, self.prompts, self.calls = candidates or [], supported, [], 0
         self.relation = relation or {"match": 0, "relation": "different"}
+        self.update = update
 
     def __call__(self, prompt, schema):
         self.calls += 1
@@ -187,6 +188,8 @@ class FakeProvider:
             return {"supported": self.supported}
         if "relation" in schema["properties"]:
             return self.relation
+        if "operation" in schema["properties"]:
+            return self.update or {}
         return {"candidates": self.candidates}
 
 
@@ -228,7 +231,7 @@ class TestVerification(Pipeline):
         self.assertIn("Failed charges are parked after 3 retries", text)
         self.assertIn(QUOTE, text)
         self.assertIn("aaaa1111", text)
-        self.assertEqual(provider.calls, 2)
+        self.assertEqual(provider.calls, 3)    # propose, supported, relate (update proposals need it)
 
     def test_prompt_sent_to_the_provider_is_redacted(self):
         _, provider = self.run_with([])
@@ -240,7 +243,7 @@ class TestVerification(Pipeline):
                                           candidate(title="Other", evidence="something never said")])
         self.assertEqual((result["proposed"], result["kept"], result["discarded"]), (2, 1, 1))
         self.assertEqual(result["discarded_reasons"], {"evidence_not_found": 1})
-        self.assertEqual(provider.calls, 2)    # no "supported" call for the unverifiable one
+        self.assertEqual(provider.calls, 3)    # no "supported" nor "relate" call for the unverifiable one
 
     def test_provider_can_reject_as_unsupported(self):
         result, _ = self.run_with([candidate()], supported=False)

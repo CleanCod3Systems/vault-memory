@@ -217,6 +217,8 @@ def search(idx, query, note_type=None, area=None, status=None, system=None, sinc
         note_type = None
     else:
         docs = [d for d in docs if not d.get("template")]
+    # A generated page (the catalog, the operations log) lists every note: it would match any query.
+    docs = [d for d in docs if not d.get("generated")]
     if note_type:
         docs = [d for d in docs if d["type"] == note_type]
     if family:

@@ -13,6 +13,7 @@
   vault-memory schedule [--at HH:MM] [--install]  automatic refresh at a fixed time
   vault-memory modules [--on X] [--off Y]         what is active; turn on and off
   vault-memory migrate [--apply]                  rewrite a legacy (Spanish) vault to the current names
+  vault-memory move PLAN.tsv [--apply]            move/rename by a plan; links, config and state follow
   vault-memory ingest --file F [--source S]       learn from a thread, issue or PR an agent collected
   vault-memory capture FILE|- [--title T]         keep raw material as it arrived (ingest --capture PATH)
   vault-memory review [PATH --verdict V]          what to check against its source; record a check
@@ -50,6 +51,7 @@ import core as C  # noqa: E402
 import distill as DS  # noqa: E402
 import embeddings as EM  # noqa: E402
 import bench as BN  # noqa: E402
+import catalog as CA  # noqa: E402
 import evaluate as EV  # noqa: E402
 import freshness as FR  # noqa: E402
 import indexer as IX  # noqa: E402
@@ -57,6 +59,7 @@ import legacy as LG  # noqa: E402
 import links as LK  # noqa: E402
 import mcp_server as MCP  # noqa: E402
 import note as NT  # noqa: E402
+import oplog as OL  # noqa: E402
 import panel as PN  # noqa: E402
 import patterns as PT  # noqa: E402
 import recall as RC  # noqa: E402
@@ -766,7 +769,8 @@ def _print_distill(result):
     days = ", ".join(result["days"]) or "nothing new"
     print(f"  distill {days}  sessions {result['sessions']} · proposed {result['proposed']} · "
           f"kept {result['kept']} · updated {result['updated']} · replaced {result['replaced']} · "
-          f"discarded {result['discarded']}" + (f" ({reasons})" if reasons else "")
+          + (f"update proposals {result['update_proposals']} · " if result["update_proposals"] else "")
+          + f"discarded {result['discarded']}" + (f" ({reasons})" if reasons else "")
           + f" · renewed {result['renewed']} · archived {result['archived']}"
           + (f" · errors {result['errors']}" if result["errors"] else "")
           + (f" · already done: {', '.join(result['skipped'])}" if result["skipped"] else ""))
@@ -820,7 +824,9 @@ def cmd_ingest(args, cfg):
         return
     reasons = ", ".join(f"{k} {v}" for k, v in sorted(result["discarded_reasons"].items()))
     print(f"  ingest {result['source']} ({result['day']})  proposed {result['proposed']} · kept {result['kept']} · "
-          f"updated {result['updated']} · replaced {result['replaced']} · discarded {result['discarded']}"
+          f"updated {result['updated']} · replaced {result['replaced']} · "
+          + (f"update proposals {result['update_proposals']} · " if result["update_proposals"] else "")
+          + f"discarded {result['discarded']}"
           + (f" ({reasons})" if reasons else "") + ("  [dry run]" if args.dry_run else ""))
 
 
@@ -913,6 +919,18 @@ def cmd_refresh(args, cfg):
     if mods["panel"]:
         target, count = PN.build(cfg, docs, link_graph, coverage, result)
         print(f"  panel.html     {count} notes · {target.stat().st_size / 1024:.0f} KB")
+    try:
+        written = CA.write(cfg, docs)
+        if written:
+            print(f"  catalog        {written}")
+    except CA.CatalogError as e:
+        print(f"  catalog: {e}")
+    try:
+        written = OL.write(cfg)
+        if written:
+            print(f"  {written[0].name:<14} {written[1]} operations" + ("" if written[2] else " (unchanged)"))
+    except ValueError as e:
+        print(f"  log: {e}")
     off = [k for k, on in mods.items() if not on]
     if off:
         print(f"  (off: {', '.join(off)})")
@@ -991,6 +1009,9 @@ def cmd_inbox(args, cfg):
         sys.exit(e.code)
     if args.json:
         print(json.dumps(result, ensure_ascii=False, indent=1))
+    elif args.accept and result.get("kind") == "update":
+        print(f"  accepted  {result['id']}  →  updated {result['p']}  (backup in {result['backup']}; "
+              f"confirmed {result['confidence']}/10)")
     elif args.accept:
         print(f"  accepted  {result['id']}  →  {result['p']}  (confirmed {result['confidence']}/10)")
     elif args.reject:
@@ -1000,9 +1021,14 @@ def cmd_inbox(args, cfg):
     else:
         print(f"\n  inbox · {result['count']} learned candidates waiting\n")
         for row in result["candidates"]:
-            print(f"  {row['id']}  {row['day']}  {row['origin'] or row['source']}  [{row['type']}]  {row['title']}")
+            kind = f"update → {row['target']}" if row.get("kind") == "update" else row["type"]
+            print(f"  {row['id']}  {row['day']}  {row['origin'] or row['source']}  [{kind}]  {row['title']}")
             if row["quote"]:
                 print(f"            > {row['quote']}")
+            for line in (row.get("diff") or "").splitlines()[2:]:
+                print(f"            {line}")
+            if row.get("stale"):
+                print("            (the note changed since this was proposed: accepting it fails; reject it)")
         print("\n  accept:  vault-memory inbox --accept ID --evidence \"<source>: <what it shows>\" [--confidence 8-10]"
               "\n  reject:  vault-memory inbox --reject ID --reason \"<why it does not hold>\"")
 
@@ -1199,6 +1225,65 @@ def cmd_migrate(args, cfg):
     IX.build(cfg, quiet=True)
     print(f"\n  migrated · {len(changed)} notes · {len(bases)} bases · backup in {C.STATE}/backups/{target.name}/")
     print("  If an environment variable still says CEREBRO_VAULT, rename it to VAULT_MEMORY_VAULT.")
+
+
+# ──────────────────────────────────────────────────────────────────── move
+def cmd_move(args, cfg):
+    """Move and rename files and folders by a plan (old<TAB>new), rewriting links, config and
+    the state saved by path. Dry run unless --apply."""
+    import move as MV
+    try:
+        text = sys.stdin.read() if args.plan == "-" else Path(args.plan).expanduser().read_text(encoding="utf-8")
+        result = MV.run(cfg, text, apply=args.apply)
+    except MV.MoveError as e:
+        if args.json:
+            print(json.dumps({"error": e.message, "errors": e.errors}, ensure_ascii=False, indent=1))
+        else:
+            print(f"vault-memory move: {e.message}", file=sys.stderr)
+            for error in e.errors:
+                print(f"  {error}", file=sys.stderr)
+        sys.exit(e.code)
+    except (OSError, UnicodeDecodeError) as e:
+        print(f"vault-memory move: {e}", file=sys.stderr)
+        sys.exit(2)
+    if result["applied"]:
+        # what derives from paths is rebuilt, not rewritten: index, graph, related, patterns, panel
+        cfg = C.load_config(cfg["_vault"])
+        docs, link_graph, coverage = IX.build(cfg, quiet=True)
+        patterns = PT.build(cfg, docs, link_graph, coverage)
+        RC.write_related(cfg, json.loads((cfg["_state"] / "index.json").read_text(encoding="utf-8")))
+        if C.enabled(cfg, "panel"):
+            PN.build(cfg, docs, link_graph, coverage, patterns)
+        for name, regenerate in (("catalog", lambda: CA.write(cfg, docs)), ("log", lambda: OL.write(cfg))):
+            try:                                   # generated pages name the new paths too
+                regenerate()
+            except (CA.CatalogError, ValueError) as e:
+                print(f"  {name}: {e}", file=sys.stderr)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+        return
+    counts = result["counts"]
+    print(f"\n  move · {cfg['_vault'].name} · {'applied' if result['applied'] else 'dry run'}\n")
+    print(f"  files     {counts['files']} moved ({counts['notes']} notes, {counts['other']} other files)")
+    for row in result["files"]:
+        print(f"    {row['from']}  →  {row['to']}")
+    print(f"  links     {counts['links']} rewritten in {counts['notes_rewritten']} notes")
+    for row in result["links"]:
+        print(f"    {row['p']}: {row['from']} → {row['to']}")
+    print(f"  config    {counts['config']} keys")
+    for row in result["config"]:
+        print(f"    {row['key']}: {row['from']} → {row['to']}")
+    print(f"  state     {counts['state']} lines"
+          + (" (" + " · ".join(f"{s['file']} {s['lines']}" for s in result["state"]) + ")" if result["state"] else ""))
+    if result["warnings"]:
+        print(f"  warnings  {len(result['warnings'])}")
+        for warning in result["warnings"]:
+            print(f"    {warning}")
+    if result["applied"]:
+        print(f"\n  moved · backup in {C.STATE}/backups/{Path(result['backup']).name}/ · "
+              "index, graph, related notes, patterns and panel rebuilt")
+    else:
+        print(f"\n  Dry run. To apply (everything it touches is backed up first):  vault-memory move {args.plan} --apply")
 
 
 # ───────────────────────────────────────────────────────────── install-cli
@@ -1497,6 +1582,12 @@ def main():
     p = sub.add_parser("migrate", help="rewrite legacy (Spanish) names to the current ones")
     p.add_argument("--apply", action="store_true")
     p.set_defaults(fn=cmd_migrate)
+    p = sub.add_parser("move", help="move or rename files and folders by a plan, rewriting links, config and state")
+    p.add_argument("plan", metavar="PLAN.tsv",
+                   help="one line per file or folder: old<TAB>new, relative to the vault (- for stdin)")
+    p.add_argument("--apply", action="store_true", help="move (otherwise dry run); everything touched is backed up")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_move)
     p = sub.add_parser("install-cli", help="write the `vault-memory` command to a folder on PATH")
     p.add_argument("--dir", default=_default_cli_dir())
     p.set_defaults(fn=cmd_install_cli, no_cfg=True)

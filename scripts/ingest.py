@@ -3,8 +3,10 @@
 vault-memory never talks to those systems: an agent with its own tools (MCP or CLI) collects
 the material and hands it over as JSON or Markdown (sources.material). From there it is the
 distill pipeline: redact → propose → evidence and support checks → inbox (`auto: false`) or
-`note.write` with an expiry (`auto: true`). The provider only ever sees the redacted text, and
-each candidate records where it came from (`source: distill <day> <source>:<id>`, `origin`, `url`).
+`note.write` with an expiry (`auto: true`); what adds to a note that already exists becomes an
+update proposal in the inbox, at most `ingest.max_updates` per item, never applied unaccepted.
+The provider only ever sees the redacted text, and each candidate records where it came from
+(`source: distill <day> <source>:<id>`, `origin`, `url`).
 """
 import distill as DS
 import sources as SR

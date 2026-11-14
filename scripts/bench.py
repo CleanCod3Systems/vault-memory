@@ -253,7 +253,8 @@ def answer_paths(cfg, idx):
     """Notes whose read after a question counts as its answer."""
     skip = set(cfg["recall"].get("similar_skip_types", [])) | {"home", "template"}
     return {d["p"] for d in idx["docs"]
-            if d["p"].rsplit("/", 1)[-1].lower() not in ENTRY_FILES and d["type"] not in skip}
+            if d["p"].rsplit("/", 1)[-1].lower() not in ENTRY_FILES and d["type"] not in skip
+            and not d.get("generated")}
 
 
 def reads_of(events, known_paths):

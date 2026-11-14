@@ -36,5 +36,5 @@ vault-memory note --title "…" --type doc --folder Memory --body "…" --source
 ## Never
 
 - Never create or rewrite notes by hand when `vault-memory note` can do it.
-- Never run `fix --apply`, `retype --apply` or `migrate --apply` without the user's explicit OK.
-- Never move, rename or delete notes.
+- Never run `fix --apply`, `retype --apply`, `migrate --apply` or `move --apply` without the user's explicit OK.
+- Never move, rename or delete notes by hand: moves go through `vault-memory move` with a plan, and only with the user's explicit OK.

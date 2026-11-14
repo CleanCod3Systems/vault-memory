@@ -13,6 +13,7 @@ import json
 import re
 from collections import defaultdict
 
+import catalog as CA
 import core as C
 import freshness as FR
 
@@ -153,6 +154,10 @@ def scan(cfg, previous=None):
             date = match.group(1) if match else (C.date_from_path(rel, name) or "")
 
         replaces = fm.get("replaces", "")
+        # A generated page (the catalog) is flagged by its marker and typed `index`.
+        generated = CA.is_generated(text)
+        if generated:
+            note_type = "index"
         docs.append({
             "p": rel, "n": name, "t": title_of(body, name),
             "type": note_type, "struct_type": struct_type,
@@ -164,7 +169,7 @@ def scan(cfg, previous=None):
             "system": fm.get("system", "").strip(),
             "class": fm.get("class", "").strip(),
             "archived": bool(set(rel.split("/")[:-1]) & archive),
-            "template": is_template,
+            "template": is_template, "generated": generated,
             "mt": dt.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d"), "mte": mtime, "size": size,
             "words": sum(1 for _ in C.TOK.finditer(C.norm(body))),
             "h2": [h for level, h in RE_HEADING.findall(body) if len(level) == 2][:14],
@@ -177,7 +182,7 @@ def scan(cfg, previous=None):
                 "chat": sorted(set(re_chat.findall(text)))[:5] if re_chat else [],
                 "rel": [x.strip() for x in fm.get("related", "").split(",") if x.strip()],
             },
-            "ids": ids[:20], "s": snippet(body), "fm": sorted(fm.keys()), "tf": term_freq,
+            "ids": ids[:20], "s": snippet(body), "desc": fm.get("description", "").strip()[:400], "fm": sorted(fm.keys()), "tf": term_freq,
             # Freshness: all optional. `replaces` is resolved to paths in freshness.annotate().
             "verified": fm.get("verified", "").strip()[:10], "source": fm.get("source", "").strip()[:200],
             "expires": fm.get("expires", "").strip()[:10], "key": fm.get("key", "").strip(),
@@ -231,7 +236,7 @@ def graph(docs, name_to_paths, cfg):
     outgoing, incoming, broken = defaultdict(set), defaultdict(set), []
     for d in docs:
         # A template links {{date}} and "Note name": they are placeholders, not targets.
-        if d.get("template"):
+        if d.get("template") or d.get("generated"):
             continue
         for link in d["refs"]["wiki"] + d["refs"]["rel"]:
             link = link.strip().strip("[]")
@@ -273,7 +278,7 @@ def graph(docs, name_to_paths, cfg):
         "diagnostics": diagnostics,
         "orphans": sorted(d["p"] for d in docs
                           if not outgoing[d["p"]] and not incoming[d["p"]]
-                          and not d["archived"] and not d["template"]) if diagnostics else [],
+                          and not d["archived"] and not d["template"] and not d.get("generated")) if diagnostics else [],
         "broken": broken if diagnostics else [],
         "duplicates": {n: p for n, p in sorted(duplicates.items())},
         "hubs": ([{"note": p, "backlinks": len(v)}

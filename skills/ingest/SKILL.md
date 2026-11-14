@@ -37,9 +37,18 @@ vault-memory ingest --source docs --file notes.md --url "<link>" --date 2026-11-
 Exit 2: the material is unreadable (no `source`, no `messages`, bad date); fix it, never
 invent a field. Ingesting the same item again is safe: what is already there is not repeated.
 
+When the material adds to or contradicts a note that already exists, the CLI leaves an
+**update proposal** in the inbox instead of a new note: the target note, the text to append or
+the exact fragment to replace, and the quote that backs it (at most `ingest.max_updates` per
+item, 10 by default). It is never applied on its own, whatever `distill.auto` says, and a
+capture is never a target. Never edit the target note yourself to "apply" it: the person
+decides with `vault-memory inbox` (it shows the diff), `--accept ID --evidence "…"` or
+`--reject ID --reason "…"`.
+
 GitHub PRs need no agent: with `gh` logged in, `distill.sources: ["claude-code", "gh-prs"]`
 and `distill.gh_repos: ["owner/repo"]` make the daily distill read them.
 
 ## Report
-One line per item: source and id, then proposed · kept · discarded (with reasons). Kept
-candidates wait in the inbox for review unless `distill.auto` is on; say so.
+One line per item: source and id, then proposed · kept · update proposals · discarded (with
+reasons). Kept candidates wait in the inbox for review unless `distill.auto` is on; update
+proposals always wait there; say so.
