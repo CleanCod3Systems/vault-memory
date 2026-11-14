@@ -12,6 +12,7 @@ import re
 import sys
 
 import core as C
+import embeddings as EM
 import freshness as FR
 import indexer as IX
 import note as NT
@@ -122,12 +123,21 @@ def _recall(cfg, args):
     query = str(args.get("q", "")).strip()
     if not query:
         raise ValueError("q is missing")
+    n = int(args.get("n", 5))
+    # Semantic rerank of BM25's best candidates when embeddings are on (falls back silently).
+    rerank = EM.enabled(cfg)
     results = RC.search(idx, query, note_type=args.get("type"), area=args.get("area"),
-                        status=args.get("status"), since=args.get("since"), n=int(args.get("n", 5)))
+                        status=args.get("status"), since=args.get("since"),
+                        n=max(n, int(EM.rerank_options(cfg)["candidates"])) if rerank else n)
+    reranked = False
+    if rerank:
+        results, reranked = EM.rerank(cfg, query, results, origin="mcp")
+    results = results[:n]
     query_terms = list(C.tokens(query, keep_stopwords=True))
     TL.record(cfg["_vault"], {"ev": "recall", "origin": "mcp", "q": query[:200], "n": len(results),
                               "top": round(results[0][0], 1) if results else 0,
-                              "ps": [d["p"] for _, d in results[:3]]}, cfg)
+                              "ps": [d["p"] for _, d in results[:3]],
+                              **({"rerank": True} if reranked else {})}, cfg)
     width = 160 if args.get("brief", True) else 300
     return [{"score": round(s, 1), "p": d["p"], "t": d["t"], "type": d["type"], "date": d["date"],
              "status": d["status"], "state": FR.state(d), "replaced_by": d.get("replaced_by", ""),

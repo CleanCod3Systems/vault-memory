@@ -28,6 +28,7 @@ language**; search works over notes written in English or Spanish (others: `stem
 | | |
 |---|---|
 | **Recall** | Search by text, by ID (order, case, record) and by ticket key. Returns the exact paragraph, not the whole file. Refreshes itself when the vault changed. Also matches a note's `aliases`, its `key` and an optional `keys:` list of questions it answers, as if they were its title (`recall.expand_keys`). A query that names a time ("yesterday", "la semana pasada", "en octubre", `2026-10-05`) boosts notes dated in that range without filtering anything out (`recall.time_boost`, 0 = off) |
+| **Semantic rerank** (opt-in, uses an embedding model) | BM25 still finds the candidates; an embedding model you choose reorders its best 30 by meaning, so "the refund was paid back twice" can rank the note that says "duplicate refund" first. Off until `embeddings` is set; any failure falls back to plain BM25. Details, cost and measured effect: [Semantic rerank](#semantic-rerank-optional) |
 | **Automatic recall** (Claude Code) | A hook leaves up to 3 pointers to relevant notes on each prompt — and stays silent on chat ("ok, go ahead", "thanks"). `hook.mode` in `config.json`: `all` (default, every prompt), `first` (the first prompt of the session, or any prompt with an ID or ticket) or `off` |
 | **Gate before external searches** (Claude Code) | Before a tool listed in `gate.tools` (a database, logs, chat, web), one line points to a current note that already answers it. Never blocks. Off until configured: `"gate": {"tools": {"mcp__db__query": "reason", "mcp__logs__": "query"}}` maps a tool name or prefix to the `tool_input` field used as the query (`"*"` joins every string). The plugin runs it on MCP tools, `WebFetch` and `WebSearch`; to cover a `Bash` command, add a `PreToolUse` hook with matcher `Bash` running `hooks/gate.py` in your own settings. **Manuals**: a note with `tools: [mcp__logs__]` (names or prefixes) is pointed at once per session, the first time a matching tool is called: how to query that source, what works, known traps. The most specific prefix wins; replaced, expired or archived manuals are skipped. On whenever a `gate` section exists (`"manuals": false` turns it off) |
 | **Daily summary** (Claude Code) | At the first session of each day, a few lines with what is next, what is waiting on someone and what is due soon, from your task notes. `vault-memory today [--all]` any time. Off until `today.type` is set: `"today": {"type": "task", "status_field": "status", "groups": {"next": ["next"], "waiting": ["waiting"]}, "priority_field": "priority", "due_field": "due", "waiting_field": "waiting_on"}` |
@@ -102,13 +103,15 @@ Full guide, profiles and updates: [docs/install.md](docs/install.md).
 ## Commands
 
 ```bash
-vault-memory recall "query" [--brief] [--type incident] [--json]
+vault-memory recall "query" [--brief] [--type incident] [--json] [--no-rerank]
 vault-memory note --title … --type doc --folder Memory --body … --source … --verified today
 vault-memory doctor            # health, read only (long notes and captures too)
 vault-memory fix [--apply]     # fill missing frontmatter (dry run without --apply)
 vault-memory refresh           # index + patterns + related notes + panel
 vault-memory usage             # is memory helping? pointers used, missed recall, gaps
 vault-memory bench [--tune [--apply]]   # recall measured on your own history, tuned only with clear evidence
+vault-memory bench --compare   # the same cases with plain BM25 and with the semantic rerank, paired
+vault-memory embed [--full] [--json]   # vectors for the semantic rerank: new or changed notes (config `embeddings`)
 vault-memory bases [Memory] [--install]   # standard Obsidian views, Memory.base included
 vault-memory links [--n 20]     # similar notes that do not link to each other
 vault-memory today [--all]     # what is next, waiting and due soon (config `today`)
@@ -146,6 +149,80 @@ Nothing is mandatory except the index and recall.
 Profiles: `minimal` (memory only), `standard` (memory + graph, patterns, panel, Bases,
 templates), `team` (everything). `vault-memory modules --profile minimal`.
 
+## Semantic rerank (optional)
+
+BM25 matches words. A question asked in other words ("the refund was paid back twice" for a
+note titled "Duplicate refund") can land below notes that merely share a word. The rerank keeps
+BM25 as the engine and only reorders its best `candidates` (30) with an embedding model:
+
+```
+score = weight × bm25 / max_bm25 + (1 − weight) × cosine(query, note)      # weight 0.5
+```
+
+It never adds a note BM25 did not find and never replaces BM25. An exact ID or ticket query
+(`48213`, `ATL-160`) keeps the BM25 order without calling the model. A candidate without a
+vector yet gets the median cosine of the others. If anything fails (server down, timeout,
+model missing, wrong dimension), recall answers with plain BM25 as if the rerank were off, and
+logs a `rerank_error` telemetry event with a short reason (never the query).
+
+**Measured effect, on one vault** (559 notes in Spanish, `bge-m3` through a local Ollama):
+MRR went from 0.833 to 0.896 on 28 hand-written questions (paired bootstrap gain +0.063,
+95% interval [+0.014, +0.125]) and from 0.673 to 0.769 on 30 rewritten real questions (+0.096
+[+0.028, +0.185]). Embeddings alone and reciprocal-rank fusion did worse, and it did not help
+long conversational prompts. Your vault is not that vault: check it with `bench --compare`.
+
+**Cost**: the model download (about 1 GB for a multilingual one), its RAM while the server
+runs, about +0.2–0.5 s per recall (the query embedding: 230 ms p50, 490 ms p95 on that vault),
+and a one-time `embed` of every note (479 notes took 218 s there; later runs only embed what
+changed). Reading the vectors costs about 3 ms per recall with 2000 notes. That is why the
+per-prompt hook and the gate do not rerank by default (`recall.rerank.hook: false`): the CLI
+`recall`, the MCP `recall` tool and `ask` do.
+
+**Turn it on with Ollama** (nothing leaves your machine). Pick the model; these are examples,
+not defaults: a multilingual one such as `bge-m3`, or an English one such as `nomic-embed-text`.
+
+```bash
+ollama pull bge-m3
+```
+
+```json
+"embeddings": {"provider": "ollama", "model": "bge-m3"}
+```
+
+**Or with an OpenAI-compatible API** (OpenAI, LM Studio, vLLM, LiteLLM; the key is read from
+the environment variable you name, never from the config):
+
+```json
+"embeddings": {"provider": "openai-compat", "model": "text-embedding-3-small",
+               "base_url": "https://api.openai.com/v1", "api_key_env": "OPENAI_API_KEY"}
+```
+
+Then `vault-memory embed` (once; `refresh` keeps it current afterwards, and a provider failure
+there is one line that never fails the refresh), `vault-memory doctor` (provider, model, notes
+embedded of eligible, stale, ready; no network call) and `vault-memory bench --compare` to see
+whether it helps on your own questions. `vault-memory recall "…" --no-rerank` gives plain BM25.
+
+| `embeddings` key | Default | |
+|---|---|---|
+| `provider` | `"off"` | `off`, `ollama` or `openai-compat` |
+| `model` | none | required when the provider is on |
+| `base_url` | Ollama: `http://localhost:11434` | required for `openai-compat` |
+| `api_key_env` | `OPENAI_API_KEY` | `openai-compat`: env var with the key (optional for a local server) |
+| `timeout` | `2` | seconds for the query embedding of a recall; past it, plain BM25 |
+| `batch_timeout` | `120` | seconds per batch of notes in `embed` (and the queries of `bench`) |
+| `max_chars` | `2000` | text per note: title and the start of the body |
+| `batch` | `16` | notes per request |
+
+`recall.rerank`: `weight` (BM25 share, `0.5`; `1` = BM25 order), `candidates` (`30`) and
+`hook` (`false`; `true` makes the prompt hook and the gate rerank too). Archived notes,
+templates and captures are never embedded. Vectors live in the state folder
+(`embeddings/index.json` plus a float32 file), never in your notes; changing the model
+re-embeds everything. Ollama unloads an idle model after 5 minutes by default, so the first
+recall after a pause may fall back to BM25 while it loads; `OLLAMA_KEEP_ALIVE` on the server
+changes that. `bench` uses the rerank for its main numbers whenever it is available
+(`bench.json` says which: `"rerank": true|false`); `--tune` tunes the BM25 parameters on plain
+BM25.
+
 ## The standard
 
 What makes recall work is the frontmatter, not the folders: [STANDARD.md](STANDARD.md).
@@ -153,7 +230,7 @@ Freshness fields: [docs/freshness.md](docs/freshness.md).
 
 ## What leaves your machine
 
-Nothing, unless you turn on `distill`. The index, telemetry (`.vault-memory/telemetry.jsonl`)
+Nothing, unless you turn on `distill` or `embeddings`. The index, telemetry (`.vault-memory/telemetry.jsonl`)
 and panel live inside the vault's state folder. The panel embeds note titles and excerpts: open
 it locally, never publish it.
 
@@ -162,6 +239,12 @@ final answers, nothing from tool calls) goes to the model provider you chose, on
 With `claude-cli` that is the same provider your sessions already use; with `openai-compat` or
 `ollama` it goes to the `base_url` you set (a local server keeps it on your machine). `ingest`
 sends the redacted material you hand it, the same way. `capture` and `answer` never call a model. `gh-prs` reads through your own `gh` login.
+
+With `embeddings` on `ollama` at `localhost`, nothing leaves the machine. With `openai-compat`
+(or an Ollama on another host), `embed` sends each note's text (title and body, up to
+`max_chars`) and every reranked recall sends its query to `base_url`; both go through the same
+redaction as `distill` first (emails, phones, cards, keys and tokens become `[REDACTED:…]`).
+The key comes only from the environment variable named by `api_key_env`.
 
 ## Development
 

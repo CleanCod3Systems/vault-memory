@@ -24,6 +24,7 @@ from pathlib import Path
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 sys.path.insert(0, str(SCRIPTS))
 import core as C          # noqa: E402
+import embeddings as EM   # noqa: E402
 import freshness as FR    # noqa: E402
 import hookfilter as HF   # noqa: E402
 import recall as RC       # noqa: E402
@@ -106,10 +107,12 @@ def best(cfg, gate, query):
     """(row, why_not): the only note worth pointing at, or none."""
     idx = load_index(cfg)
     terms = list(C.tokens(query, keep_stopwords=True))
+    found = RC.search(shortlist(idx, query, terms, 4 * int(gate["candidates"])), query, n=int(gate["candidates"]))
+    if EM.rerank_options(cfg)["hook"] and EM.enabled(cfg):     # off by default: it costs a model call
+        found = EM.rerank(cfg, query, found, origin="gate")[0]
     rows = [{"score": score, "p": d["p"], "n": d["n"], "t": d["t"], "type": d["type"],
              "ids": d["ids"], "refs": d["refs"], "state": FR.state(d), "_doc": d}
-            for score, d in RC.search(shortlist(idx, query, terms, 4 * int(gate["candidates"])),
-                              query, n=int(gate["candidates"]))]
+            for score, d in found]
     # Own thresholds on the prompt filter's rules: "relative" is the cut for what counts as
     # a rival, and a rival means the answer is not clear.
     hits, why = HF.select(rows, query, {"hook": {"floor": gate["floor"], "relative": gate["relative"]},

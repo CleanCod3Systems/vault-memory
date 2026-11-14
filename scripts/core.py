@@ -119,7 +119,15 @@ CONFIG_DEF = {
                # A time expression in the query ("yesterday", "last week", "en octubre",
                # 2026-10-05) lifts the notes dated in that range by this fraction (0 = off).
                # It never drops a note.
-               "time_boost": 0.5},
+               "time_boost": 0.5,
+               # Semantic rerank (embeddings.py), only when `embeddings` is on and `embed` ran:
+               # the top `candidates` of BM25 are reordered by `weight` × BM25/max +
+               # (1 - weight) × cosine. `hook`: the prompt hook and the gate rerank too.
+               "rerank": {"weight": 0.5, "candidates": 30, "hook": False}},
+    # Embeddings for the rerank (embeddings.py). Off by default; the model is the user's
+    # choice (no default). `timeout` is per query embedding; `batch_timeout` per batch of notes.
+    "embeddings": {"provider": "off", "model": "", "base_url": "", "api_key_env": "",
+                   "timeout": 2, "batch_timeout": 120, "max_chars": 2000, "batch": 16},
     # doctor: notes longer than `long_words` dilute recall and are read badly (0 = off).
     "doctor": {"long_words": 600, "long_skip_types": ["daily", "period", "home", "index"]},
     "hook": {},               # thresholds and regexes of the UserPromptSubmit hook (see hookfilter.py)
@@ -294,7 +302,11 @@ def cfg_hash(cfg):
     if it changes, the incremental index is useless and gets rebuilt."""
     keys = ("language", "exclude", "types_by_folder", "extra_types", "areas", "default_area",
             "references", "modules", "recall", "captures")
-    payload = json.dumps({k: cfg.get(k) for k in keys}, sort_keys=True, ensure_ascii=False)
+    values = {k: cfg.get(k) for k in keys}
+    if isinstance(values.get("recall"), dict):
+        # The rerank reorders results; it changes nothing in the index.
+        values["recall"] = {k: v for k, v in values["recall"].items() if k != "rerank"}
+    payload = json.dumps(values, sort_keys=True, ensure_ascii=False)
     return hashlib.sha1(f"{TOK_VER}|{IDX_VER}|{payload}".encode("utf-8")).hexdigest()[:12]
 
 

@@ -25,6 +25,7 @@ import random
 from collections import Counter, defaultdict
 
 import core as C
+import embeddings as EM
 import evaluate as EV
 import hookfilter as HF
 import recall as RC
@@ -114,8 +115,13 @@ def _prior_before(reads, case):
     return Counter(e["p"] for e in reads if e["t"] < case["t"] and e.get("sid") != case.get("sid"))
 
 
-def rank(idx, case, check, prior):
-    results = [d for _, d in RC.search(idx, case["q"], n=30, prior=prior) if check(d)][:10]
+def rank(idx, case, check, prior, rerank=None, n=30):
+    """`rerank`: callable(case, results) -> results (the semantic rerank with a precomputed
+    query vector), or None for plain BM25."""
+    results = RC.search(idx, case["q"], n=n, prior=prior)
+    if rerank:
+        results = rerank(case, results)
+    results = [d for _, d in results if check(d)][:10]
     for position, d in enumerate(results, 1):
         if case.get("fragment"):
             if case["fragment"].lower() in d["p"].lower():
@@ -156,8 +162,9 @@ def by_kind(cases, ranks):
     return out
 
 
-def evaluate(cfg, idx, cases, reads, params=None):
-    """Ranks and metrics with `params` (k1, b, title_bonus, prior_weight) applied for the run."""
+def evaluate(cfg, idx, cases, reads, params=None, vectors=None):
+    """Ranks and metrics with `params` (k1, b, title_bonus, prior_weight) applied for the run.
+    `vectors`: one query vector per case → reranked as `recall` does; None → plain BM25."""
     saved = (C.BM25_K1, C.BM25_B, C.TITLE_BONUS, C.PRIOR_WEIGHT)
     params = params or {}
     C.BM25_K1 = float(params.get("k1", C.BM25_K1))
@@ -166,7 +173,13 @@ def evaluate(cfg, idx, cases, reads, params=None):
     C.PRIOR_WEIGHT = float(params.get("prior_weight", C.PRIOR_WEIGHT))
     try:
         check = EV.usable(cfg)
-        ranks = [rank(idx, case, check, _prior_before(reads, case) if C.PRIOR_WEIGHT else {})
+        by_case = {id(c): v for c, v in zip(cases, vectors)} if vectors else {}
+
+        def rerank(case, results):
+            return EM.rerank(cfg, case["q"], results, query_vector=by_case[id(case)], log=False)[0]
+        wanted = max(30, int(EM.rerank_options(cfg)["candidates"])) if vectors else 30
+        ranks = [rank(idx, case, check, _prior_before(reads, case) if C.PRIOR_WEIGHT else {},
+                      rerank if vectors else None, wanted)
                  for case in cases]
     finally:
         C.BM25_K1, C.BM25_B, C.TITLE_BONUS, C.PRIOR_WEIGHT = saved
@@ -256,18 +269,72 @@ def write_usage(cfg, reads):
         ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
 
 
-def run(cfg, days=DAYS, do_tune=False, write=True):
+def _why_no_rerank(cfg):
+    """Why the rerank cannot run here, or "" when it can."""
+    if not EM.enabled(cfg):
+        return "embeddings are off (set `embeddings.provider` and `embeddings.model` in config.json)"
+    issue = EM.problem(EM.options(cfg))
+    if issue:
+        return issue
+    if not EM.available(cfg):
+        return "no vectors for this model yet: run `vault-memory embed`"
+    return ""
+
+
+def query_vectors(cfg, cases):
+    """(vectors, reason): one query vector per case, embedded in batches, or (None, why not)."""
+    reason = _why_no_rerank(cfg)
+    if reason or not cases:
+        return None, reason or "no cases"
+    try:
+        return EM.embed_queries(cfg, [c["q"] for c in cases]), ""
+    except EM.EmbedError as e:
+        TL.record(cfg["_vault"], {"ev": "rerank_error", "origin": "bench", "reason": str(e)[:60]}, cfg)
+        return None, f"the embedding provider failed: {e}"
+
+
+def compare(cases, plain, reranked):
+    """Plain BM25 against the rerank on the same cases: metrics of each, and the paired
+    difference in reciprocal rank with its bootstrap 95% interval (same seed), total and by kind."""
+    def rr(r):
+        return 1 / r if r else 0.0
+
+    def gain(pairs):
+        diffs = [rr(b) - rr(a) for a, b in pairs]
+        return round(sum(diffs) / len(diffs), 3) if diffs else 0.0, _interval(diffs)
+    total, total_ci = gain(list(zip(plain, reranked)))
+    kinds = {}
+    for kind in KINDS:
+        pairs = [(a, b) for c, a, b in zip(cases, plain, reranked) if c.get("kind") == kind]
+        if pairs:
+            g, ci = gain(pairs)
+            kinds[kind] = {"cases": len(pairs), "bm25": _summary([a for a, _ in pairs])["mrr"],
+                           "rerank": _summary([b for _, b in pairs])["mrr"], "gain": g, "gain_ci": ci}
+    return {"available": True, "cases": len(cases), "bm25": _summary(plain), "rerank": _summary(reranked),
+            "gain": total, "gain_ci": total_ci, "by_kind": kinds}
+
+
+def run(cfg, days=DAYS, do_tune=False, write=True, rerank=None, do_compare=False):
+    """`rerank`: None uses the semantic rerank whenever it is available (as `recall` does),
+    False never. The main numbers say which one they used (`rerank`). Tuning is plain BM25."""
     idx = RC.load(cfg)
     known = {d["p"] for d in idx["docs"]}
     events = TL.read(cfg["_vault"], days=days)
     reads = reads_of(events, known)
     mined = mine(events, answer_paths(cfg, idx), tuple(HF.options(cfg).get("skip_prefixes", [])))
     cases = mined + hand_cases(cfg)
-    metrics, ranks = evaluate(cfg, idx, cases, reads)
+    vectors, why = (None, "") if rerank is False and not do_compare else query_vectors(cfg, cases)
+    use = bool(vectors) and rerank is not False
+    plain = evaluate(cfg, idx, cases, reads) if not use or do_compare else None
+    reranked = evaluate(cfg, idx, cases, reads, vectors=vectors) if vectors else None
+    metrics, ranks = reranked if use else plain
     result = {"generated": C.today().isoformat(), "days": days, "cases": len(cases),
-              "mined": len(mined), "hand": len(cases) - len(mined), **metrics,
+              "mined": len(mined), "hand": len(cases) - len(mined), **metrics, "rerank": use,
               "by_kind": by_kind(cases, ranks),
               "misses": [c["q"][:80] for c, r in zip(cases, ranks) if not r][:10]}
+    if do_compare:
+        result["compare"] = (compare(cases, plain[1], reranked[1]) if vectors
+                             else {"available": False, "reason": why})
     # The weekly "did it help?" numbers travel with it, so the daily summary only reads a file.
     import review as RV
     week = TL.metrics(TL.read(cfg["_vault"], days=7))

@@ -20,11 +20,13 @@
   vault-memory review PATH --flag "reason"        disputed in a conversation: check it first
   vault-memory answer --question Q --cites A,B    keep an answer as a note (unverified, reviewed later)
   vault-memory bench [--tune [--apply]]           does recall find what gets used? (own history)
+  vault-memory bench --compare                    plain BM25 against the semantic rerank, paired
+  vault-memory embed [--full]                     vectors for the semantic rerank (config `embeddings`)
   vault-memory bases [--install] [--folder F]     standard Obsidian views (.base) missing in the vault
   vault-memory links [--n 20]                     notes that talk about the same thing and are not linked
   vault-memory install-cli                        put `vault-memory` on the PATH
 
-No network, no model, no tokens. Python 3.9+, no dependencies.
+No network, no model, no tokens (unless you turn on `distill` or `embeddings`). Python 3.9+, no dependencies.
 """
 import argparse
 import datetime as dt
@@ -45,6 +47,7 @@ ROOT = HERE.parent            # plugin root: standard/ lives next to scripts/
 import contract as CT  # noqa: E402
 import core as C  # noqa: E402
 import distill as DS  # noqa: E402
+import embeddings as EM  # noqa: E402
 import bench as BN  # noqa: E402
 import evaluate as EV  # noqa: E402
 import freshness as FR  # noqa: E402
@@ -367,7 +370,8 @@ def doctor(args, cfg):
         print(json.dumps({"health": result["health"], "gaps": link_graph["gaps"], "freshness": report,
                           "properties": properties, "long_notes": long_notes,
                           "captures": captures,
-                          "distill": dict(zip(("provider", "ready", "detail"), DS.readiness(cfg)))},
+                          "distill": dict(zip(("provider", "ready", "detail"), DS.readiness(cfg))),
+                          "embeddings": EM.status(cfg, docs)},
                          ensure_ascii=False, indent=1))
         return
     health = result["health"]
@@ -416,6 +420,10 @@ def doctor(args, cfg):
     if DS.options(cfg)["enabled"]:
         name, ok, detail = DS.readiness(cfg)
         print(f"\ndistill provider: {name} · {'ready' if ok else 'NOT ready'} · {detail}")
+    if EM.enabled(cfg):
+        emb = EM.status(cfg, docs)
+        print(f"\nembeddings: {emb['provider']} · {emb['model'] or 'no model'} · embedded {emb['embedded']} of "
+              f"{emb['eligible']} · stale {emb['stale']} · {'ready' if emb['ready'] else 'NOT ready'} · {emb['detail']}")
     if properties:
         kinds = Counter(i["issue"] for i in properties)
         print(f"\nObsidian properties ({len(properties)}): " + ", ".join(f"{k} {v}" for k, v in sorted(kinds.items())))
@@ -506,14 +514,24 @@ def cmd_recall(args, cfg):
     else:
         if not args.query:
             raise SystemExit("The query is missing.  vault-memory recall \"...\"")
+        hook = os.environ.get("VAULT_MEMORY_ORIGIN") == "hook"
+        # The semantic rerank (embeddings on and `embed` run) reorders BM25's best candidates;
+        # the prompt hook uses it only with `recall.rerank.hook`.
+        rerank = not args.no_rerank and EM.enabled(cfg) and (not hook or EM.rerank_options(cfg)["hook"])
+        wanted = max(args.n, int(EM.rerank_options(cfg)["candidates"])) if rerank else args.n
         results = RC.search(idx, args.query, note_type=args.type, area=args.area, status=args.status,
                             system=args.system, since=args.since, family=args.family,
-                            include_archive=args.archive, n=args.n, include_expired=args.include_expired)
+                            include_archive=args.archive, n=wanted, include_expired=args.include_expired)
+        reranked = False
+        if rerank:
+            results, reranked = EM.rerank(cfg, args.query, results, origin="hook" if hook else "cli")
+        results = results[:args.n]
         query_terms = list(C.tokens(args.query, keep_stopwords=True))
-        if os.environ.get("VAULT_MEMORY_ORIGIN") != "hook":   # the hook records its own
+        if not hook:                                            # the hook records its own
             TL.record(cfg["_vault"], {"ev": "recall", "origin": "cli", "q": args.query[:200],
                                       "n": len(results), "top": round(results[0][0], 1) if results else 0,
-                                      "ps": [d["p"] for _, d in results[:3]]}, cfg)
+                                      "ps": [d["p"] for _, d in results[:3]],
+                                      **({"rerank": True} if reranked else {})}, cfg)
     if args.brief:
         # One line per note with the short passage: often enough to answer without reading
         # the whole note (the biggest token saving after not searching elsewhere).
@@ -805,6 +823,36 @@ def cmd_ingest(args, cfg):
           + (f" ({reasons})" if reasons else "") + ("  [dry run]" if args.dry_run else ""))
 
 
+def _embed_line(result):
+    return (f"embeddings     {result['model']} · {result['eligible']} eligible · embedded {result['embedded']} · "
+            f"kept {result['kept']} · dropped {result['dropped']}"
+            + (" · rebuilt" if result["rebuilt"] else "")
+            + (f" · {result['pending']} pending" if result.get("pending") else "")
+            + f" · {result['seconds']:.1f}s")
+
+
+def cmd_embed(args, cfg):
+    """Vectors for the semantic rerank: new or changed notes only (`--full`: all of them)."""
+    if not EM.enabled(cfg):
+        print("  embeddings are off: set `embeddings.provider` and `embeddings.model` in config.json")
+        return
+    try:
+        result = EM.build(cfg, full=args.full)
+    except EM.EmbedError as e:
+        partial = getattr(e, "result", None)
+        if args.json:
+            print(json.dumps({"error": str(e), **(partial or {})}, ensure_ascii=False, indent=1))
+        else:
+            if partial and partial["embedded"]:
+                print("  " + _embed_line(partial))
+            print(f"  embed: {e}", file=sys.stderr)
+        sys.exit(1)
+    if args.json:
+        print(json.dumps(result, ensure_ascii=False, indent=1))
+    else:
+        print("  " + _embed_line(result))
+
+
 def cmd_capture(args, cfg):
     """Keep raw material exactly as it arrived (redacted first), for notes to cite."""
     import capture as CP
@@ -846,8 +894,16 @@ def cmd_refresh(args, cfg):
             result = PT.build(cfg, docs, link_graph, coverage)
     idx = json.loads((cfg["_state"] / "index.json").read_text(encoding="utf-8"))
     print(f"  related.json   {RC.write_related(cfg, idx)} notes with neighbors")
+    embed_ok = True
+    if EM.enabled(cfg):
+        # after indexing, so new notes get their vector today; a provider failure is one line
+        try:
+            print("  " + _embed_line(EM.build(cfg, docs=idx["docs"])))
+        except Exception as e:
+            embed_ok = False
+            print(f"  embed: {e} (recall keeps working with plain BM25)")
     try:
-        measured = BN.run(cfg)
+        measured = BN.run(cfg, rerank=None if embed_ok else False)
         print(f"  bench.json     {measured['cases']} cases · MRR {measured['mrr']:.3f} · "
               f"suggestions used this week {measured['week']['pct_read']}%")
     except Exception as e:                     # measuring must never break the refresh
@@ -935,10 +991,29 @@ def _print_calibration(data, as_json):
     print(f"  learned notes → {'notes' if auto['auto'] else 'inbox'} ({auto['reason']})")
 
 
+def _print_compare(comp):
+    if comp is None:
+        return
+    if not comp["available"]:
+        print(f"\n  compare    cannot compare: {comp['reason']}")
+        return
+    bm25, rerank = comp["bm25"], comp["rerank"]
+    print(f"\n  compare    {comp['cases']} cases, the same ones with each mode")
+    print(f"    plain BM25        MRR {bm25['mrr']:.3f}  hit@1 {bm25['hit1']:.0%}  hit@3 {bm25['hit3']:.0%}")
+    print(f"    semantic rerank   MRR {rerank['mrr']:.3f}  hit@1 {rerank['hit1']:.0%}  hit@3 {rerank['hit3']:.0%}")
+    print(f"    paired gain       {comp['gain']:+.3f}  95% interval [{comp['gain_ci'][0]:+.3f}, {comp['gain_ci'][1]:+.3f}]"
+          + ("  → clearly better" if comp["gain_ci"][0] > 0 else
+             "  → clearly worse" if comp["gain_ci"][1] < 0 else "  → not clear"))
+    for kind, row in comp["by_kind"].items():
+        print(f"    {kind:<17} n={row['cases']:<4} MRR {row['bm25']:.3f} → {row['rerank']:.3f}  "
+              f"gain {row['gain']:+.3f} [{row['gain_ci'][0]:+.3f}, {row['gain_ci'][1]:+.3f}]")
+
+
 def cmd_bench(args, cfg):
     """Recall measured on this vault's own history; --tune tries parameters, --apply keeps the
     best only when the gain is statistically clear."""
-    result = BN.run(cfg, days=args.days, do_tune=args.tune or args.apply)
+    result = BN.run(cfg, days=args.days, do_tune=args.tune or args.apply,
+                    rerank=False if args.no_rerank else None, do_compare=args.compare)
     tuned = result.get("tune")
     if args.apply and tuned and tuned["clear"]:
         result["applied"] = str(BN.apply(cfg, tuned["best"]))
@@ -949,11 +1024,13 @@ def cmd_bench(args, cfg):
     print(f"\n  recall on your own history · last {result['days']} days\n")
     print(f"  cases      {result['cases']}  (mined from use {result['mined']} · written by hand {result['hand']})")
     print(f"  hit@1      {result['hit1']:.0%}    hit@3 {result['hit3']:.0%}")
-    print(f"  MRR@10     {result['mrr']:.3f}   95% interval [{low:.3f}, {high:.3f}]")
+    print(f"  MRR@10     {result['mrr']:.3f}   95% interval [{low:.3f}, {high:.3f}]   "
+          f"({'BM25 + semantic rerank' if result['rerank'] else 'plain BM25'})")
     kinds = [f"{kind} n={m['cases']} MRR {m['mrr']:.2f} [{m['mrr_ci'][0]:.2f}, {m['mrr_ci'][1]:.2f}] "
              f"hit@3 {m['hit3']:.0%}" for kind, m in result["by_kind"].items()]
     if kinds:
         print("  by kind    " + " · ".join(kinds))
+    _print_compare(result.get("compare"))
     week, cov = result["week"], result["verified"]
     print(f"  this week  {week['pointers_read']} of {week['pointers']} suggestions used ({week['pct_read']}%)")
     print(f"  verified   {cov['verified_current']} of {cov['notes']} reviewable notes current · {cov['due']} due")
@@ -1213,6 +1290,8 @@ def main():
     p.add_argument("--passage-width", dest="passage_width", type=int, default=160)
     p.add_argument("--include-expired", dest="include_expired", action="store_true",
                    help="do not lower the score of replaced or expired notes")
+    p.add_argument("--no-rerank", dest="no_rerank", action="store_true",
+                   help="plain BM25, even when the semantic rerank is on")
     p.set_defaults(fn=cmd_recall)
 
     p = sub.add_parser("fix")
@@ -1323,8 +1402,16 @@ def main():
     p.add_argument("--days", type=int, default=BN.DAYS, help="history window (default 120)")
     p.add_argument("--tune", action="store_true", help="try recall parameters against the cases")
     p.add_argument("--apply", action="store_true", help="tune and write the best only if the gain is clear")
+    p.add_argument("--compare", action="store_true",
+                   help="the same cases with plain BM25 and with the semantic rerank, paired difference")
+    p.add_argument("--no-rerank", dest="no_rerank", action="store_true",
+                   help="main numbers with plain BM25 even when the rerank is available")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=cmd_bench)
+    p = sub.add_parser("embed", help="vectors for the semantic rerank of recall (config `embeddings`)")
+    p.add_argument("--full", action="store_true", help="embed every note again")
+    p.add_argument("--json", action="store_true")
+    p.set_defaults(fn=cmd_embed)
     p = sub.add_parser("review", help="notes to check against their source, and record a check")
     p.add_argument("path", nargs="?", help="note to record a check for (relative to the vault)")
     p.add_argument("--verdict", choices=RV.VERDICTS)

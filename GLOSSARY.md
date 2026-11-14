@@ -83,6 +83,10 @@ _Avoid_: derived note, Q&A note
 Handing vault-memory material an agent collected elsewhere (a thread, an issue), so it is learned from like a session.
 _Avoid_: import, sync
 
+**Rerank**:
+Reordering the best few notes that BM25 found by how close their meaning is to the question, using an embedding model the user chose. It never adds or removes a note, and any failure leaves the plain BM25 order.
+_Avoid_: semantic search, vector search, hybrid search
+
 **Bench case**:
 A question from the user's own history paired with the note that was actually read to answer it, or a case written by hand. Recall is measured and tuned only against these.
 _Avoid_: test query, ground truth
