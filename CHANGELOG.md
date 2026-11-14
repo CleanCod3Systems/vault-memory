@@ -1,3 +1,9 @@
+## 0.13.1 — 2026-11-14
+
+- `move` also rewrites `emitidos`, the field of the legacy telemetry file (`telemetria.jsonl`)
+  that lists the notes a hook suggested. Before, those paths kept the old location after a move,
+  so usage and the bench lost track of them.
+
 # Changelog
 
 ## 0.13.0 — 2026-11-14
