@@ -1,4 +1,4 @@
-## Unreleased
+## 0.15.0 — 2026-11-14
 
 - `hook.skip_cwd`: folders where the passive hooks (prompt pointers, the pre-search gate and the
   day summary) stay silent, for projects the vault has nothing to do with. Asking the memory
