@@ -21,7 +21,8 @@ never-audited learned note waiting, up to `review.daily.max`.
 
 ## 2. Check each note
 **With subagents** and the plugin's agents (Claude Code: `vault-memory:memory-verifier` and
-`vault-memory:memory-skeptic`), per note:
+`vault-memory:memory-skeptic`), per note. The queue's `models` names the model of each one:
+pass it when you start the agent, and pass none when it says `inherit`.
 1. Start `memory-verifier` with the note path and the vault path. It returns a JSON
    proposal: claims with source, what each shows and whether it holds, then verdict,
    confidence, volatility and evidence.

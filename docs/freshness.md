@@ -107,6 +107,11 @@ logs an `outdated` line for `inbox:<id>` with the redacted reason (the only line
 contradicted or never-audited learned note, up to `review.daily.max` (8), never more than are
 due; `budget.n` is in the JSON for a scheduled run.
 
+**Models.** `review.models` sets the model the `verify` skill gives each agent:
+`{"verifier": "inherit", "skeptic": "inherit"}` by default, so both run on the session's model.
+Name one per role (`"sonnet"`, `"opus"`, `"haiku"` or any model the client accepts) to trade cost
+for rigor; the queue's JSON carries it as `models`.
+
 To see all of this inside Obsidian, `vault-memory bases Memory --install` adds `Memory.base`: views of
 the notes never verified, the ones checked at the source with their confidence, the live facts
 and the ones a review found outdated or unsure.

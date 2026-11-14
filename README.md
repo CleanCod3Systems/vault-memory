@@ -110,8 +110,10 @@ The plugin ships two subagents that the `verify` skill uses when the client can 
   refute it with anything newer; it can lower the confidence, never raise it.
 
 Both are read-only and never write: the skill records the verdict with `vault-memory review`.
-They inherit the session's model (`model: inherit`) and every tool the session has, so they
-reach the same sources you do. Clients without plugin agents run the same steps inline: every
+They inherit every tool the session has, so they reach the same sources you do, and by default
+the session's model too. `review.models` picks one per role, for example
+`{"verifier": "sonnet", "skeptic": "opus"}`: the skeptic is the one that changes verdicts, so
+give it the stronger model; `inherit` (the default) keeps the session's. Clients without plugin agents run the same steps inline: every
 skill works without them.
 
 ## Commands

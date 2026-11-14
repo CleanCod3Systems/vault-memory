@@ -64,6 +64,11 @@ class TestAgents(unittest.TestCase):
         self.assertIn("single writer", text)
         self.assertIn("vault-memory review \"PATH\" --verdict confirmed", text)
 
+    def test_verify_skill_passes_the_configured_model(self):
+        text = VERIFY.read_text(encoding="utf-8")
+        self.assertIn("`models`", text)
+        self.assertIn("`inherit`", text)
+
 
 if __name__ == "__main__":
     unittest.main()

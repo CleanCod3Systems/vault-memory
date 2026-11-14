@@ -43,7 +43,10 @@ import telemetry as TL
 DEFAULTS = {"n": 20, "gap_days": 7, "usage_days": 30, "min_confirm": 8,
             # a scheduled run checks `base` notes plus one per high-priority note waiting
             # (contradicted, or learned and never audited), at most `max`
-            "daily": {"base": 4, "max": 8}, "calibration_min": CB.MIN_SAMPLES}
+            "daily": {"base": 4, "max": 8}, "calibration_min": CB.MIN_SAMPLES,
+            # model of each agent the verify skill starts: "inherit" (the session's) or a name
+            # the client accepts, such as "sonnet", "opus" or "haiku"
+            "models": {"verifier": "inherit", "skeptic": "inherit"}}
 VERDICTS = ("confirmed", "outdated", "unsure")
 CONTRADICTS = re.compile(r"Contradicts \[\[([^\]|#]+)")
 EVIDENCE_MAX = 300
@@ -51,6 +54,13 @@ EVIDENCE_MAX = 300
 
 def options(cfg):
     return {**DEFAULTS, **(cfg.get("review") or {})}
+
+
+def models(cfg):
+    """{"verifier": model, "skeptic": model}: "inherit" unless the config names one."""
+    chosen = (cfg.get("review") or {}).get("models") or {}
+    return {role: str(chosen.get(role) or "inherit").strip() or "inherit"
+            for role in DEFAULTS["models"]}
 
 
 def _usage(cfg, days):
@@ -221,7 +231,7 @@ def queue(cfg, n=None, today=None, cap=None, use_budget=False):
     coverage["due"] = len(rows)
     plan = budget(cfg, high, len(rows), cap)
     length = plan["n"] if use_budget else int(n or opts["n"])
-    return {"queue": rows[:length], "coverage": coverage, "budget": plan}
+    return {"queue": rows[:length], "coverage": coverage, "budget": plan, "models": models(cfg)}
 
 
 def record(cfg, rel, verdict, evidence, confidence=None, volatility=None, today=None):

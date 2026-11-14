@@ -106,6 +106,12 @@ class TestQueue(Env):
 
 
 class TestRecord(Env):
+    def test_models_default_to_inherit_and_follow_the_config(self):
+        self.assertEqual(self.queue()["models"], {"verifier": "inherit", "skeptic": "inherit"})
+        cfg = self.cfg()
+        cfg["review"] = {"models": {"skeptic": "opus", "verifier": " "}}
+        self.assertEqual(RV.queue(cfg)["models"], {"verifier": "inherit", "skeptic": "opus"})
+
     def test_confirmed_writes_only_frontmatter_with_a_backup(self):
         before = self.text(ACCESS)
         RV.record(self.cfg(), ACCESS, "confirmed", "ticket PLAT-12 shows the same flow", 9, "stable")

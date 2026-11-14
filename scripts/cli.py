@@ -960,7 +960,8 @@ def cmd_review(args, cfg):
     print(f"\n  reviewable notes {cov['notes']} · verified and current {cov['verified_current']} · "
           f"outdated {cov['outdated']} · unsure {cov['unsure']} · due {cov['due']}")
     print(f"  budget today {plan['n']} (base {plan['base']} + {plan['high']} high priority, "
-          f"max {plan['max']})\n")
+          f"max {plan['max']}) · models: verifier {result['models']['verifier']}, "
+          f"skeptic {result['models']['skeptic']}\n")
     if not result["queue"]:
         print("  nothing due for review")
         return
