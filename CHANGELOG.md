@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.13.0 — 2026-11-14
+
+- `vault-memory move PLAN.tsv [--apply]` moves and renames notes, folders and attachments from a
+  plan (`old<TAB>new`): every link that pointed at a moved file follows (by path, by name, with
+  `#section`, `|alias`, embeds, markdown links, `related:`/`replaces:`), resolved the way the
+  indexer and Obsidian resolve them; so do the config keys that hold folders and the state saved
+  by path (reviews, flags, telemetry, usage, embeddings, inbox). The whole plan is refused on a
+  missing origin, an existing destination, a collision or a cycle; a dry run lists every change;
+  applying backs up everything it touches. Captures move intact and are never rewritten.
+- Catalog: with `catalog.path`, `refresh` writes a generated front page with one line per note,
+  grouped by area or folder. Operations log: with `log.path`, `refresh` writes `log.md`, one
+  `## [YYYY-MM-DD] op | title` entry per write, review, learning run, inbox decision, saved answer
+  or capture, derived from the review log and the telemetry. Both are off by default, never
+  overwrite a page they did not generate, and stay out of recall, the bench and the orphan count.
+- Update proposals: when a session or ingested material adds to or contradicts a note that
+  already exists, learning leaves the change in the inbox (append, or replace an exact
+  fragment) with its source and quote. It is applied only when accepted, with a backup and only
+  if the note has not changed since; accepting or rejecting counts as an audit. Never automatic.
+  `ingest.max_updates` (10) caps them per source.
+- `STANDARD.md` adds the `index` type for generated pages. The search index format changes
+  (version 6): it rebuilds itself once.
+
 ## 0.12.0 — 2026-11-14
 
 - `review.models` picks the model of each review agent: `{"verifier": "inherit", "skeptic":
