@@ -1,3 +1,9 @@
+## Unreleased
+
+- The plugin bundles the `obsidian-markdown` and `obsidian-bases` skills from
+  obsidianmd/obsidian-skills (MIT), unchanged, with their license and the upstream commit they
+  came from. `make vendor` refreshes them before each release, so they update with the plugin.
+
 ## 0.13.1 — 2026-11-14
 
 - `move` also rewrites `emitidos`, the field of the legacy telemetry file (`telemetria.jsonl`)

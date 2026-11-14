@@ -1,6 +1,6 @@
 PY ?= python3
 
-.PHONY: test eval example validate release eval-plugin eval-plugin-write eval-plugin-quick
+.PHONY: test eval example validate vendor release eval-plugin eval-plugin-write eval-plugin-quick
 
 test:
 	$(PY) -B -m unittest discover tests
@@ -14,6 +14,10 @@ example:
 
 validate:
 	claude plugin validate .
+
+# Bundled Obsidian skills: refresh them from upstream before each release.
+vendor:
+	$(PY) -B scripts/vendor_skills.py
 
 # Hosted catalog (what Vercel serves): marketplace.json + zip with a pinned sha256.
 release:

@@ -19,6 +19,8 @@ class TestSkills(unittest.TestCase):
 
     def test_skills_reply_in_the_users_language(self):
         for path in SKILLS.glob("*/SKILL.md"):
+            if (path.parent / "UPSTREAM").exists():      # bundled from another project, kept as is
+                continue
             self.assertIn("user's language", path.read_text(encoding="utf-8"), path.parent.name)
 
 

@@ -135,6 +135,21 @@ the session's model too. `review.models` picks one per role, for example
 give it the stronger model; `inherit` (the default) keeps the session's. Clients without plugin agents run the same steps inline: every
 skill works without them.
 
+## Bundled Obsidian skills
+
+The plugin also ships two skills from [obsidianmd/obsidian-skills](https://github.com/obsidianmd/obsidian-skills)
+(MIT, by the Obsidian team), so the notes and views your agent writes use Obsidian's real syntax:
+
+- **`obsidian-markdown`**: wikilinks, embeds, callouts, properties and tags.
+- **`obsidian-bases`**: `.base` files with views, filters and formulas, for example to adapt the
+  views that `vault-memory bases` installs.
+
+They are copied unchanged, each with its license and an `UPSTREAM` file naming the commit it came
+from, and refreshed from upstream before every release (`make vendor`), so they update when the
+plugin does. Like any skill, they load only when the task needs them. If you already have them
+from the official `obsidian` plugin or uploaded by hand, keep one copy so the agent does not see
+the same skill twice.
+
 ## Commands
 
 ```bash
@@ -291,6 +306,7 @@ The key comes only from the environment variable named by `api_key_env`.
 make test       # stdlib unittest, Python 3.9+
 make eval       # recall and hook gates on the example vault
 make validate   # claude plugin validate .
+make vendor     # refresh the bundled Obsidian skills from upstream (before each release)
 make release    # build public/ (marketplace.json + zip) for the hosted catalog
 ```
 
