@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.1 — 2026-11-14
+
+- `bench` no longer takes a read of an entry file (`README`, `CLAUDE`, `AGENTS`, `GEMINI`) or of
+  a home, template, daily, period or index note as the answer to a question: agents open those
+  at the start of a session whatever was asked, so most mined cases could not be answered and
+  the measured recall looked much worse than it was. Expect fewer mined cases and a higher MRR.
+
 ## 0.9.0 — 2026-11-14
 
 - Captures: raw material kept exactly as it arrived, so a note can always be checked against
