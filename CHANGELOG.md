@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.11.0 — 2026-11-14
+
+- `vault-memory inbox` lists the candidates learning left for review; `--accept ID --evidence …
+  [--confidence 8-10]` writes the note (contract, duplicates, provenance) and records it as a
+  confirmed review of a learned note; `--reject ID --reason …` writes nothing and records it as
+  an outdated learned claim. Both count toward learned-note precision and the audits that earn
+  `distill.auto: "earned"`, so autonomy can be earned from the inbox too. Decided candidates move
+  to `<state>/inbox/done/` and are never proposed again.
+- Two Claude Code agents for reviews: `memory-verifier` checks one note at its primary sources
+  and returns a verdict proposal as JSON; `memory-skeptic`, in a fresh context with only the note
+  and that proposal, tries to refute it and may lower the confidence, never raise it. Neither
+  writes: the `verify` skill records the verdict. They inherit the session model. Clients
+  without plugin agents keep the same steps inline. On one vault, the skeptic changed 2 of 3
+  confirmations to `unsure` by finding a wrong detail.
+
 ## 0.10.0 — 2026-11-14
 
 - Optional semantic rerank (off by default): with `embeddings.provider` set to `ollama` or
