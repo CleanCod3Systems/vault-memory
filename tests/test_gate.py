@@ -51,10 +51,10 @@ class TestGate(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         return result.stdout
 
-    def gate(self, tool_name="mcp__logs__search", tool_input=None, sid="s1", **kwargs):
+    def gate(self, tool_name="mcp__logs__search", tool_input=None, sid="s1", cwd=None, **kwargs):
         payload = {"hook_event_name": "PreToolUse", "tool_name": tool_name,
                    "tool_input": {"reason": STRONG} if tool_input is None else tool_input,
-                   "session_id": sid}
+                   "session_id": sid, **({"cwd": cwd} if cwd else {})}
         return self.run_gate(json.dumps(payload), **kwargs)
 
     def events(self):
@@ -63,6 +63,15 @@ class TestGate(unittest.TestCase):
 
     def test_without_gate_config_it_does_nothing(self):
         self.assertEqual(self.gate(), "")
+
+    def test_silent_in_folders_listed_in_hook_skip_cwd(self):
+        self.configure({"tools": {"mcp__logs__search": "reason"}})
+        config_file = self.vault / ".vault-memory" / "config.json"
+        config = json.loads(config_file.read_text(encoding="utf-8"))
+        config["hook"] = {"skip_cwd": [str(self.tmp / "personal")]}
+        config_file.write_text(json.dumps(config), encoding="utf-8")
+        self.assertEqual(self.gate(cwd=str(self.tmp / "personal" / "app")), "")
+        self.assertIn("[vault]", self.gate(cwd=str(self.tmp / "work"), sid="s2"))
 
     def test_tool_not_listed_is_silent(self):
         self.configure({"tools": {"mcp__logs__search": "reason"}})

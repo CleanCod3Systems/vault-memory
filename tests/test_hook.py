@@ -23,7 +23,8 @@ class TestHook(unittest.TestCase):
     def tearDown(self):
         shutil.rmtree(self.tmp)
 
-    def hook(self, prompt, vault=True, hook_config=None, session_id=None, profile_vault=None, env_vault=None):
+    def hook(self, prompt, vault=True, hook_config=None, session_id=None, profile_vault=None, env_vault=None,
+             cwd=None):
         if hook_config is not None:
             config_file = self.vault / ".vault-memory" / "config.json"
             config = json.loads(config_file.read_text(encoding="utf-8"))
@@ -37,7 +38,8 @@ class TestHook(unittest.TestCase):
         env["CLAUDE_CONFIG_DIR"] = str(profile)
         if vault:
             env["VAULT_MEMORY_VAULT"] = str(env_vault or self.vault)
-        payload = {"prompt": prompt, **({"session_id": session_id} if session_id else {})}
+        payload = {"prompt": prompt, **({"session_id": session_id} if session_id else {}),
+                   **({"cwd": cwd} if cwd else {})}
         result = subprocess.run([sys.executable, "-B", str(HOOK)], input=json.dumps(payload),
                                 capture_output=True, text=True, env=env)
         self.assertEqual(result.returncode, 0, result.stderr)
@@ -47,6 +49,13 @@ class TestHook(unittest.TestCase):
         out = self.hook("checkout went down because of the certificate, what do we do")
         self.assertIn("[vault]", out)
         self.assertIn("expired certificate", out)
+
+    def test_silent_in_folders_listed_in_skip_cwd(self):
+        prompt = "checkout went down because of the certificate, what do we do"
+        config = {"skip_cwd": [str(self.tmp / "personal")]}
+        self.assertEqual(self.hook(prompt, hook_config=config, cwd=str(self.tmp / "personal" / "app")), "")
+        self.assertIn("[vault]", self.hook(prompt, hook_config=config, cwd=str(self.tmp / "work")))
+        self.assertIn("[vault]", self.hook(prompt, hook_config=config, cwd=str(self.tmp / "personal-2")))
 
     def test_spanish_prompt_on_english_vault_still_finds_ids(self):
         out = self.hook("qué pasó con el pedido 48213")

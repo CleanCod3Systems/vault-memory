@@ -133,6 +133,8 @@ def main():
         if not vault or not isinstance(payload, dict):
             return
         cfg = C.read_config_file(Path(vault))
+        if HF.cwd_skipped(cfg, payload.get("cwd")):
+            return
         gate = options(cfg)
         name = payload.get("tool_name")
         query = query_for(gate["tools"], name, payload.get("tool_input")) if isinstance(name, str) else ""

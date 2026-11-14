@@ -1,3 +1,9 @@
+## Unreleased
+
+- `hook.skip_cwd`: folders where the passive hooks (prompt pointers, the pre-search gate and the
+  day summary) stay silent, for projects the vault has nothing to do with. Asking the memory
+  explicitly still works there.
+
 ## 0.14.0 — 2026-11-14
 
 - The plugin bundles the `obsidian-markdown` and `obsidian-bases` skills from

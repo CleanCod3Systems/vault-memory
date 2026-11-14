@@ -13,6 +13,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 import core as C          # noqa: E402
+import hookfilter as HF   # noqa: E402
 import telemetry as TL    # noqa: E402
 import today as TD        # noqa: E402
 
@@ -29,6 +30,8 @@ def main():
             return
         vault = Path(vault)
         cfg = C.read_config_file(vault)
+        if HF.cwd_skipped(cfg, payload.get("cwd")):
+            return
         opts = TD.options(cfg)
         entry = os.environ.get("CLAUDE_CODE_ENTRYPOINT", "")
         if not opts["type"] or not entry or entry not in opts["entrypoints"]:

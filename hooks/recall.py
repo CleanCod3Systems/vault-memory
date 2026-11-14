@@ -60,6 +60,8 @@ def main():
         if (TL.options(cfg)["log_silent"] or hook["mode"] == "first") and not prompt.startswith(("/", "!")):
             TL.record(vault, {"ev": "hook_silent", "reason": reason, "q": prompt[:200]}, cfg, session_id)
 
+    if HF.cwd_skipped(cfg, payload.get("cwd")):
+        return silent("cwd")
     should_search, memory_only, reason = HF.decide(prompt, cfg)
     if not should_search:
         return silent(reason)

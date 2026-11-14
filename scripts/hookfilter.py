@@ -3,6 +3,7 @@
 
 Everything vault-dependent comes from config.json (`hook.*`, `recall.skip_paths`).
 """
+import os
 import re
 import unicodedata
 
@@ -45,6 +46,19 @@ perfecto genial buenisimo vamos sigamos continua continuar
 
 def options(cfg):
     return {**DEFAULTS, **(cfg.get("hook") or {})}
+
+
+def cwd_skipped(cfg, cwd):
+    """True when the session runs inside a folder of `hook.skip_cwd`: the passive hooks (pointer,
+    gate, today) stay silent there. Explicit recall and the skills still work."""
+    if not cwd:
+        return False
+    here = os.path.realpath(os.path.expanduser(cwd))
+    for folder in (cfg.get("hook") or {}).get("skip_cwd") or []:
+        base = os.path.realpath(os.path.expanduser(str(folder)))
+        if here == base or here.startswith(base.rstrip(os.sep) + os.sep):
+            return True
+    return False
 
 
 def _words(text, minimum):
