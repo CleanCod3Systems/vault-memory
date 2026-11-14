@@ -67,6 +67,32 @@ class TestMine(unittest.TestCase):
         cfg = {"recall": {"similar_skip_types": ["daily", "period", "home", "index"]}}
         self.assertEqual(BN.answer_paths(cfg, {"docs": docs}), {"Memory/A.md", "Flat note.md"})
 
+    def test_each_case_keeps_its_kind_of_question(self):
+        events = [ev(0, "recall", q="retry policy", sid="a"), ev(1, "read", p="Memory/A.md", sid="a"),
+                  ev(0, "gate_miss", q="refund duplicate", sid="b"), ev(1, "read", p="Memory/A.md", sid="b"),
+                  ev(0, "gate_hit", q="tls renewal", sid="c"), ev(1, "read", p="Memory/B.md", sid="c"),
+                  ev(0, "hook", q="how do we retry payments", sid="d"), ev(1, "read", p="Memory/A.md", sid="d"),
+                  ev(0, "hook_brief", q="where is the tls runbook", sid="e"), ev(1, "read", p="Memory/B.md", sid="e"),
+                  ev(0, "hook_silent", q="why did the refund fail twice", reason="floor", sid="f"),
+                  ev(1, "read", p="Memory/C.md", sid="f"),
+                  ev(0, "hook_silent", q="ok do item 3", reason="not_first", sid="g"),
+                  ev(1, "read", p="Memory/C.md", sid="g")]
+        kinds = {c["q"]: c["kind"] for c in BN.mine(events, KNOWN)}
+        self.assertEqual(kinds, {"retry policy": "agent", "refund duplicate": "agent", "tls renewal": "agent",
+                                 "how do we retry payments": "prompt", "where is the tls runbook": "prompt",
+                                 "why did the refund fail twice": "prompt", "ok do item 3": "follow_up"})
+
+    def test_by_kind_adds_up_and_follows_the_kind_order(self):
+        cases = [{"kind": k} for k in ("hand", "follow_up", "agent", "agent", "prompt", "follow_up")]
+        ranks = [1, None, 2, None, 1, None]
+        groups = BN.by_kind(cases, ranks)
+        self.assertEqual(list(groups), ["agent", "prompt", "follow_up", "hand"])
+        self.assertEqual(sum(g["cases"] for g in groups.values()), len(cases))
+        self.assertEqual(groups["agent"], {"cases": 2, "hit1": 0.0, "hit3": 0.5, "mrr": 0.25,
+                                           "mrr_ci": groups["agent"]["mrr_ci"]})
+        self.assertEqual(groups["follow_up"]["mrr"], 0.0)
+        self.assertNotIn("prompt", BN.by_kind(cases[:1], ranks[:1]))
+
     def test_prior_never_sees_the_answer(self):
         reads = [ev(1, "read", p="Memory/A.md", sid="s0"), ev(5, "read", p="Memory/A.md", sid="s1"),
                  ev(9, "read", p="Memory/B.md", sid="s0")]
@@ -98,6 +124,27 @@ class TestRun(WithVault):
         for name in ("bench.json", "bench.tsv", "usage.json"):
             self.assertTrue((self.cfg["_state"] / name).exists(), name)
         self.assertIn("verified", json.loads((self.cfg["_state"] / "bench.json").read_text()))
+
+    def test_mined_and_hand_cases_by_kind(self):
+        paths = sorted(d["p"] for d in RC.load(self.cfg)["docs"] if "Retry policy v2" in d["p"])
+        now = dt.datetime.now().replace(microsecond=0)
+        events = [{"t": (now + dt.timedelta(seconds=s)).isoformat(), "sid": sid, "ev": kind, **kw}
+                  for s, sid, kind, kw in [
+                      (0, "x", "recall", {"q": "payment retry policy v2"}), (5, "x", "read", {"p": paths[0]}),
+                      (0, "y", "hook_silent", {"q": "ok go on with that", "reason": "not_first"}),
+                      (5, "y", "read", {"p": paths[0]})]]
+        with (self.cfg["_state"] / "telemetry.jsonl").open("a", encoding="utf-8") as handle:
+            handle.writelines(json.dumps(e) + "\n" for e in events)
+        result = BN.run(self.cfg)
+        self.assertEqual(list(result["by_kind"]), ["agent", "follow_up", "hand"])
+        self.assertEqual(sum(g["cases"] for g in result["by_kind"].values()), result["cases"])
+        self.assertEqual(result["by_kind"]["hand"]["cases"], 3)
+        self.assertEqual(result, BN.run(self.cfg))
+        saved = json.loads((self.cfg["_state"] / "bench.json").read_text(encoding="utf-8"))
+        self.assertEqual(saved["by_kind"], result["by_kind"])
+        rows = (self.cfg["_state"] / "bench.tsv").read_text(encoding="utf-8").splitlines()
+        self.assertTrue(rows[0].endswith("<TAB>kind"))
+        self.assertEqual(sorted(r.split("\t")[3] for r in rows[1:]), ["agent", "follow_up"])
 
     def test_few_cases_never_change_the_config(self):
         result = BN.run(self.cfg, do_tune=True)

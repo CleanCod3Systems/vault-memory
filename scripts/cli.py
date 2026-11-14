@@ -950,6 +950,10 @@ def cmd_bench(args, cfg):
     print(f"  cases      {result['cases']}  (mined from use {result['mined']} · written by hand {result['hand']})")
     print(f"  hit@1      {result['hit1']:.0%}    hit@3 {result['hit3']:.0%}")
     print(f"  MRR@10     {result['mrr']:.3f}   95% interval [{low:.3f}, {high:.3f}]")
+    kinds = [f"{kind} n={m['cases']} MRR {m['mrr']:.2f} [{m['mrr_ci'][0]:.2f}, {m['mrr_ci'][1]:.2f}] "
+             f"hit@3 {m['hit3']:.0%}" for kind, m in result["by_kind"].items()]
+    if kinds:
+        print("  by kind    " + " · ".join(kinds))
     week, cov = result["week"], result["verified"]
     print(f"  this week  {week['pointers_read']} of {week['pointers']} suggestions used ({week['pct_read']}%)")
     print(f"  verified   {cov['verified_current']} of {cov['notes']} reviewable notes current · {cov['due']} due")

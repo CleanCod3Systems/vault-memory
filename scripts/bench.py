@@ -10,6 +10,9 @@ Cases come from two places:
 
 Metrics per case: rank of the first relevant note among the results the hook would accept;
 hit@1, hit@3 and MRR@10 with a seeded bootstrap 95% interval (same input, same output).
+They are also given by kind of question (`KINDS`), because one mixed number hides what the
+system does: a query an agent wrote is keyword-like, a prompt is a person's sentence, and a
+follow-up ("ok, do item 3") is answered by the conversation, not by its own words.
 
 Tuning (`--tune`) tries one parameter at a time (BM25 k1 and b, the title bonus, the weight of
 past use) and keeps a change only if the paired bootstrap of the difference stays above zero
@@ -32,6 +35,9 @@ DAYS = 120
 MIN_CASES = 30
 RESAMPLES = 1000
 SILENT_OK = {"domain", "floor", "repeated", "not_first"}
+# agent: a query an agent wrote (recall, or the gate before a tool) · prompt: a prompt the
+# hook searched · follow_up: a later prompt `hook.mode: first` does not search · hand: eval.tsv
+KINDS = ("agent", "prompt", "follow_up", "hand")
 GRID = {"k1": [0.9, 1.2, 1.4, 1.8], "b": [0.5, 0.72, 0.9], "title_bonus": [4, 8, 12],
         "prior_weight": [0.0, 0.1, 0.25]}
 
@@ -50,9 +56,18 @@ def _is_question(event, skip=()):
     return kind == "hook_silent" and event.get("reason") in SILENT_OK
 
 
+def _kind(event):
+    """Kind of question (`KINDS`) of an event `_is_question` accepted."""
+    if event.get("ev") in ("recall", "gate_hit", "gate_miss"):
+        return "agent"
+    if event.get("ev") == "hook_silent" and event.get("reason") == "not_first":
+        return "follow_up"
+    return "prompt"
+
+
 def mine(events, known_paths, skip=()):
-    """[{"q", "relevant": [paths], "t", "sid"}] from telemetry, oldest first. `skip`: prompt
-    prefixes of automatic runs (the hook's `skip_prefixes`): what they read is not an answer."""
+    """[{"q", "relevant": [paths], "t", "sid", "kind"}] from telemetry, oldest first. `skip`:
+    prompt prefixes of automatic runs (the hook's `skip_prefixes`): what they read is not an answer."""
     by_session = defaultdict(list)
     for event in events:
         by_session[event.get("sid", "")].append(event)
@@ -72,7 +87,8 @@ def mine(events, known_paths, skip=()):
                     and event["p"] not in written \
                     and (_ts(event["t"]) - _ts(question["t"])).total_seconds() <= WINDOW:
                 key = (sid, question["t"], question["q"])
-                case = cases.setdefault(key, {"q": question["q"], "relevant": [], "t": question["t"], "sid": sid})
+                case = cases.setdefault(key, {"q": question["q"], "relevant": [], "t": question["t"], "sid": sid,
+                                              "kind": _kind(question)})
                 if event["p"] not in case["relevant"]:
                     case["relevant"].append(event["p"])
     # The same question asked twice counts once (the latest), so a repeated prompt does not
@@ -88,7 +104,7 @@ def hand_cases(cfg):
     if not path.exists():
         return []
     cases, _ = EV.read_cases(path)
-    return [{"q": q, "fragment": expected, "t": "", "sid": ""} for q, expected in cases]
+    return [{"q": q, "fragment": expected, "t": "", "sid": "", "kind": "hand"} for q, expected in cases]
 
 
 def _prior_before(reads, case):
@@ -124,6 +140,22 @@ def _interval(values, seed=42):
     return [round(means[int(0.025 * RESAMPLES)], 3), round(means[int(0.975 * RESAMPLES) - 1], 3)]
 
 
+def _summary(ranks):
+    metrics = _metrics(ranks)
+    metrics["mrr_ci"] = _interval([1 / r if r else 0.0 for r in ranks])
+    return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in metrics.items()}
+
+
+def by_kind(cases, ranks):
+    """{kind: {"cases", "hit1", "hit3", "mrr", "mrr_ci"}} for each kind with cases, in `KINDS` order."""
+    out = {}
+    for kind in KINDS:
+        own = [r for c, r in zip(cases, ranks) if c.get("kind") == kind]
+        if own:
+            out[kind] = {"cases": len(own), **_summary(own)}
+    return out
+
+
 def evaluate(cfg, idx, cases, reads, params=None):
     """Ranks and metrics with `params` (k1, b, title_bonus, prior_weight) applied for the run."""
     saved = (C.BM25_K1, C.BM25_B, C.TITLE_BONUS, C.PRIOR_WEIGHT)
@@ -138,9 +170,7 @@ def evaluate(cfg, idx, cases, reads, params=None):
                  for case in cases]
     finally:
         C.BM25_K1, C.BM25_B, C.TITLE_BONUS, C.PRIOR_WEIGHT = saved
-    metrics = _metrics(ranks)
-    metrics["mrr_ci"] = _interval([1 / r if r else 0.0 for r in ranks])
-    return {k: (round(v, 3) if isinstance(v, float) else v) for k, v in metrics.items()}, ranks
+    return _summary(ranks), ranks
 
 
 def current_params(cfg):
@@ -236,6 +266,7 @@ def run(cfg, days=DAYS, do_tune=False, write=True):
     metrics, ranks = evaluate(cfg, idx, cases, reads)
     result = {"generated": C.today().isoformat(), "days": days, "cases": len(cases),
               "mined": len(mined), "hand": len(cases) - len(mined), **metrics,
+              "by_kind": by_kind(cases, ranks),
               "misses": [c["q"][:80] for c, r in zip(cases, ranks) if not r][:10]}
     # The weekly "did it help?" numbers travel with it, so the daily summary only reads a file.
     import review as RV
@@ -246,9 +277,9 @@ def run(cfg, days=DAYS, do_tune=False, write=True):
         result["tune"] = tune(cfg, idx, cases, reads)
     if write:
         state = cfg["_state"]
-        lines = ["# mined from telemetry: query<TAB>notes read after it<TAB>when"]
+        lines = ["# mined from telemetry: query<TAB>notes read after it<TAB>when<TAB>kind"]
         lines += [f"{c['q'].replace(chr(9), ' ').replace(chr(10), ' ')}\t{' | '.join(c['relevant'])}\t{c['t']}"
-                  for c in mined]
+                  f"\t{c['kind']}" for c in mined]
         (state / "bench.tsv").write_text("\n".join(lines) + "\n", encoding="utf-8")
         (state / "bench.json").write_text(json.dumps({k: v for k, v in result.items() if k != "misses"},
                                                      ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
