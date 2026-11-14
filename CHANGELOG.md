@@ -1,4 +1,4 @@
-## Unreleased
+## 0.14.0 — 2026-11-14
 
 - The plugin bundles the `obsidian-markdown` and `obsidian-bases` skills from
   obsidianmd/obsidian-skills (MIT), unchanged, with their license and the upstream commit they
@@ -83,7 +83,7 @@
   searched), `follow_up` (prompts the hook skips in `hook.mode: first`) and `hand` (`eval.tsv`).
   `bench.json` → `by_kind`; `bench.tsv` gains a `kind` column.
 
-## Unreleased
+## 0.14.0 — 2026-11-14
 
 - The gate points at a tool's **manual**: a note with `tools: [mcp__logs__]` (tool names or
   prefixes) is offered, once per session, the first time the agent calls a matching tool:
