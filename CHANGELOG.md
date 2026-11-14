@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.9.2 — 2026-11-14
+
+- `bench` reports hit@1, hit@3 and MRR (with its interval) by kind of question as well as in
+  total: `agent` (`recall` and gated-tool queries an agent wrote), `prompt` (prompts the hook
+  searched), `follow_up` (prompts the hook skips in `hook.mode: first`) and `hand` (`eval.tsv`).
+  `bench.json` → `by_kind`; `bench.tsv` gains a `kind` column.
+
+## Unreleased
+
+- The gate points at a tool's **manual**: a note with `tools: [mcp__logs__]` (tool names or
+  prefixes) is offered, once per session, the first time the agent calls a matching tool:
+  `[vault] manual for mcp__logs__: <path> — read it before the first query.` The most specific
+  prefix wins; a replaced, expired, outdated or archived manual is never offered. Works whenever
+  a `gate` section exists, even without `gate.tools`; `"manuals": false` turns it off. Reindex
+  (`vault-memory index`) so existing notes with `tools:` are picked up.
+
 ## 0.9.1 — 2026-11-14
 
 - `bench` no longer takes a read of an entry file (`README`, `CLAUDE`, `AGENTS`, `GEMINI`) or of
