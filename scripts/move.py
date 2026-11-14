@@ -66,7 +66,7 @@ CONFIG_PREFIX_DICTS = ("areas", "types_by_folder")      # keys are folder prefix
 CONFIG_PREFIX_LISTS = (("recall", "skip_paths"),)       # items are path prefixes
 STATE_JSONL = ("reviews.jsonl", "flags.jsonl")          # one event per line, `p` = note path
 TELEMETRY = "telemetr*.jsonl*"                          # telemetry.jsonl, its rotation, the legacy name
-TELEMETRY_FIELDS = ("p", "emitted", "ps")
+TELEMETRY_FIELDS = ("p", "emitted", "ps", "emitidos")
 VIEWS = (".base", ".canvas")                            # Obsidian files that may name folders
 
 

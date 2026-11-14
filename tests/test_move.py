@@ -322,7 +322,8 @@ class TestVault(Env):
             json.dumps({"t": "2026-11-03T09:01:00", "ev": "hook", "emitted": [V1, "Home.md"]}),
             json.dumps({"t": "2026-11-03T09:02:00", "ev": "recall", "ps": ["Home.md"]}),
             "not json"]) + "\n")
-        self.put(".vault-memory/telemetria.jsonl", json.dumps({"ev": "leida", "p": V2}) + "\n")
+        self.put(".vault-memory/telemetria.jsonl", json.dumps({"ev": "leida", "p": V2}) + "\n"
+                 + json.dumps({"ev": "hook", "emitidos": [V1, "Home.md"]}) + "\n")
         self.put(".vault-memory/usage.json", json.dumps(
             {"generated": TODAY, "reads": {"Home.md": 2, V2: 5}}, indent=1) + "\n")
         self.put(".vault-memory/embeddings/index.json", json.dumps(
@@ -383,6 +384,8 @@ class TestVault(Env):
         self.assertEqual(telemetry[2], json.dumps({"t": "2026-11-03T09:02:00", "ev": "recall", "ps": ["Home.md"]}))
         self.assertEqual(telemetry[3], "not json")
         self.assertIn("Wiki/Memory/Retry policy v2.md", self.text(".vault-memory/telemetria.jsonl"))
+        legacy = self.text(".vault-memory/telemetria.jsonl").splitlines()
+        self.assertEqual(json.loads(legacy[1])["emitidos"], ["Wiki/Memory/Retry policy v1.md", "Home.md"])
         usage = json.loads(self.text(".vault-memory/usage.json"))
         self.assertEqual(usage["reads"], {"Home.md": 2, "Wiki/Memory/Retry policy v2.md": 5})
         vectors = json.loads(self.text(".vault-memory/embeddings/index.json"))
