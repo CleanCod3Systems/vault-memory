@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.0 — 2026-11-14
+
+- `review.models` picks the model of each review agent: `{"verifier": "inherit", "skeptic":
+  "inherit"}` by default (the session's), or any model the client accepts, such as `"sonnet"`,
+  `"opus"` or `"haiku"`. `vault-memory review` shows them and the queue's JSON carries them as
+  `models`, which the `verify` skill passes when it starts each agent. On one vault the three
+  models used about the same tokens per check; the skeptic is the one that changes verdicts, so
+  it gets the stronger model.
+
 ## 0.11.0 — 2026-11-14
 
 - `vault-memory inbox` lists the candidates learning left for review; `--accept ID --evidence …
