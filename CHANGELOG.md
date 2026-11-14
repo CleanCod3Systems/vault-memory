@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.9.0 — 2026-11-14
+
+- Captures: raw material kept exactly as it arrived, so a note can always be checked against
+  it. `vault-memory capture FILE|- [--title] [--url] [--date]` writes it, redacted, to
+  `captures.folder` (`Captures`) with its `sha256`, and never overwrites (the same content
+  returns the existing path). `vault-memory ingest --capture PATH` learns from it and every
+  candidate carries `capture: "[[…]]"`. vault-memory never edits, moves or archives a capture,
+  and captures stay out of recall, the hook and the gate. `doctor` reports captures edited
+  after capture and notes whose `capture` link points nowhere.
+- Saved answers: `vault-memory answer --question … --body … --cites a,b` (MCP `save_answer`)
+  keeps an answer that combines at least `answers.min_cites` (2) current notes as a note in
+  `answers.folder` (`Memory/answers`): redacted, with `derived_from`, `source: ask <date>` and
+  `expires` (`answers.expires_days`, 90), never verified. It enters the review queue like a
+  learned note, is renewed when read and archived when it expires unread, and its reviews do not
+  count toward learned-note precision. The `ask` skill offers to save an answer once and saves
+  it only on an explicit yes. Duplicates are judged on the question and the answer, not the
+  cited names.
+- `doctor` lists notes longer than `doctor.long_words` (600 words of body, without frontmatter
+  or code; 0 = off), which dilute recall; daily, period, home and index notes are skipped
+  (`doctor.long_skip_types`). `doctor --json` → `long_notes`, `captures`.
+
 ## 0.8.0 — 2026-11-11
 
 - Talk with your memory: skill `ask` (`/vault-memory:ask <question or claim>`, or "ask my
