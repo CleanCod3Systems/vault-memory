@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.10.0 — 2026-11-14
+
+- Optional semantic rerank (off by default): with `embeddings.provider` set to `ollama` or
+  `openai-compat` and an `embeddings.model` of your choice, `vault-memory embed` stores a vector
+  per note (only new or changed notes are embedded again; a new model rebuilds them) and
+  `recall`, the MCP `recall` tool and `ask` reorder BM25's top `recall.rerank.candidates` (30) by
+  `weight` (0.5) × BM25 + the rest × cosine similarity. BM25 still finds the candidates; exact
+  IDs and tickets are never reordered. The prompt hook and the gate keep plain BM25 unless
+  `recall.rerank.hook` is true. Any failure (server down, timeout, wrong model) falls back to
+  BM25 and logs `rerank_error`. `recall --no-rerank` forces BM25. `refresh` runs `embed`;
+  `doctor` reports how many notes are embedded and whether rerank is ready.
+- `bench --compare` measures the same cases with plain BM25 and with rerank, in total and by
+  kind, with a paired 95% interval, so you can check on your own vault whether it helps. On
+  one 479-note Spanish vault with `bge-m3`: MRR 0.557 → 0.615 (+0.059 [+0.024, +0.100]) over
+  88 cases; +0.080 on written questions, no gain on long conversational prompts; +~0.2 s per
+  recall.
+- With a non-local provider, notes and queries are redacted before they are sent.
+
 ## 0.9.2 — 2026-11-14
 
 - `bench` reports hit@1, hit@3 and MRR (with its interval) by kind of question as well as in
